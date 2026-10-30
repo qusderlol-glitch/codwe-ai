@@ -76,7 +76,8 @@
   }
 
   function loginScreen(notice) {
-    let email = "", sent = false, cool = 0, cd;
+    let email = "", sent = false, cool = 0, cd, saved = [];
+    call("/api/auth/accounts").then((d) => { saved = (d.accounts || []).filter((e) => e !== d.current); if (saved.length && !sent && layer && layer.querySelector("#auEmail")) draw(); }).catch(() => {});
     const draw = (err = "", info = "") => {
       show(`<div class="auth-card"><img class="au-logo" src="/static/codwe_icon.png" alt="" onerror="this.remove()"><h2>Вход в Codwe AI</h2>
         <p class="au-sub">${sent ? `Мы отправили письмо на <b>${esc(email)}</b>. Нажмите ссылку в письме — окно войдёт само. Если в письме есть код, введите его ниже.` : "Введите почту — пришлём письмо со входом. Пароль не нужен."}</p>
@@ -86,10 +87,11 @@
           <button class="btn primary au-btn" id="auVerify">Войти</button>
           <button class="au-link" id="auResend" ${cool > 0 ? "disabled" : ""}>${cool > 0 ? `Отправить код ещё раз (${cool} с)` : "Отправить код ещё раз"}</button>
           <button class="au-link" id="auChange">Другая почта</button>`
-          : `<input id="auEmail" type="email" autocomplete="email" placeholder="you@example.com" value="${esc(email)}" class="au-in">
+          : `${saved.length ? `<div class="au-saved"><div class="au-fine">Ваши аккаунты на этом компьютере:</div>${saved.map((e) => `<button class="btn au-btn" data-sw="${esc(e)}">Продолжить как ${esc(e)}</button>`).join("")}<div class="au-fine">или войдите другой почтой:</div></div>` : ""}<input id="auEmail" type="email" autocomplete="email" placeholder="you@example.com" value="${esc(email)}" class="au-in">
           <button class="btn primary au-btn" id="auSend">Получить код</button>`}
         <p class="au-fine">Входя, вы соглашаетесь с условиями использования (они покажутся следующим шагом).</p></div>`);
       const q = (id) => layer.querySelector(id);
+      layer.querySelectorAll("[data-sw]").forEach((b) => (b.onclick = async () => { b.disabled = true; try { await call("/api/auth/switch", "POST", { email: b.dataset.sw }); lastKey = ""; refresh(); } catch (e) { draw(e.message); } }));
       if (!sent) {
         const go = async () => { email = q("#auEmail").value.trim(); q("#auSend").disabled = true;
           try { await call("/api/auth/send-code", "POST", { email }); sent = true; cool = 45; tick(); waitLink(); draw("", "Письмо отправлено. Проверьте «Входящие» и «Спам»."); }
@@ -193,14 +195,7 @@
     load();
   }
 
-  function adminButton(isAdmin) {
-    let b = document.getElementById("adminBtn");
-    if (!isAdmin) { if (b) b.remove(); return; }
-    if (b) return;
-    const anchor = document.getElementById("safetyBtn"); if (!anchor) return;
-    anchor.insertAdjacentHTML("beforebegin", `<button class="shield" id="adminBtn" title="Пользователи"><span>👑 Админ</span></button>`);
-    document.getElementById("adminBtn").onclick = adminPanel;
-  }
+  function adminButton() { const old = document.getElementById("adminBtn"); if (old) old.remove(); }
 
   // вход по ссылке из письма: облако возвращает пользователя на этот адрес с токеном после «#»
   async function takeLinkSession() {
@@ -220,7 +215,8 @@
     try {
       st = await call("/api/auth/state");
       const key = [st.tampered, st.needs_connect, st.banned, st.logged_in, st.access_ok, st.tos_ok, st.email].join("|");
-      adminButton(st.logged_in && st.tos_ok && st.role === "admin" && !st.tampered);
+      adminButton();
+      if (window.codweAuth && window.codweAuth.onState) window.codweAuth.onState(st);
       if (st.tampered) { if (key !== lastKey) lockScreen(st.tamper_reason); }
       else if (st.needs_connect) { if (key !== lastKey) connectScreen(); }
       else if (st.banned) { if (key !== lastKey) bannedScreen(st.notice); }
@@ -232,7 +228,7 @@
     } catch { /* сервер перезапускается */ }
     busy = false;
   }
-  window.codweAuth = { refresh, state: () => st };
+  window.codweAuth = { refresh, state: () => st, admin: adminPanel, call, esc };
   takeLinkSession().then(refresh);
   setInterval(refresh, 20000);
 })();

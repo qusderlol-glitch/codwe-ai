@@ -40,7 +40,7 @@ admin_router = APIRouter(prefix="/api/admin")
 # файлы, чьё изменение считается вмешательством
 GUARDED = ["server.py", "auth_api.py", "safety.py", "policy.enc", "safety.sig", "engine.py", "workspace_api.py",
            "codwecode_api.py", "zimage_engine.py", "klein_engine.py", "launcher.py",
-           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/style.css"]
+           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/style.css"]
 
 
 # ───────── целостность ─────────
@@ -147,11 +147,32 @@ except Exception:
     pass
 
 
+ACCOUNTS_FILE = HERE / "auth_accounts.json"
+
+
+def _acc_load():
+    try:
+        return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _acc_write(d):
+    try:
+        ACCOUNTS_FILE.write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _save():
     try:
         SESSION_FILE.write_text(json.dumps(SESS), encoding="utf-8")
     except OSError:
         pass
+    if SESS.get("email") and SESS.get("refresh"):  # запоминаем аккаунт для быстрого переключения
+        d = _acc_load()
+        d[SESS["email"]] = {"refresh": SESS["refresh"], "ts": int(time.time())}
+        _acc_write(d)
 
 
 def _clear(reason=""):
@@ -409,8 +430,75 @@ def api_connect(req: ConnectReq):
 
 @router.post("/logout")
 def api_logout():
+    """Выход из текущего аккаунта: сессия закрывается и в облаке, и на этом компьютере, аккаунт забывается."""
     with _L:
+        tok, mail = SESS.get("access"), SESS.get("email")
+        if tok:
+            try:
+                _sb("POST", "/auth/v1/logout", tok, data="{}")
+            except HTTPException:
+                pass
+        if mail:
+            d = _acc_load()
+            d.pop(mail, None)
+            _acc_write(d)
         _clear()
+    return state()
+
+
+@router.get("/accounts")
+def api_accounts():
+    d = _acc_load()
+    return {"current": SESS.get("email", ""), "accounts": sorted(d.keys())}
+
+
+@router.post("/add")
+def api_add_account():
+    """«Добавить аккаунт»: текущий остаётся сохранённым, показывается экран входа."""
+    with _L:
+        _save()
+        keep = {k: v for k, v in SESS.items() if k in ("email",)}
+        SESS.clear()
+        _save_empty()
+    return state()
+
+
+def _save_empty():
+    try:
+        SESSION_FILE.write_text("{}", encoding="utf-8")
+    except OSError:
+        pass
+
+
+class SwitchReq(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+
+
+@router.post("/switch")
+def api_switch(req: SwitchReq):
+    mail = req.email.strip().lower()
+    d = _acc_load()
+    rec = d.get(mail)
+    if not rec:
+        raise HTTPException(404, "Этот аккаунт не сохранён. Войдите по почте.")
+    with _L:
+        if SESS.get("email") == mail and SESS.get("access"):
+            return state()
+        _save()  # текущий аккаунт запоминаем
+        r = _sb("POST", "/auth/v1/token?grant_type=refresh_token", None, data=json.dumps({"refresh_token": rec["refresh"]}))
+        if r.status_code != 200:
+            d.pop(mail, None)
+            _acc_write(d)
+            raise HTTPException(400, "Сессия этого аккаунта истекла. Войдите по почте ещё раз.")
+        SESS.clear()
+        _store_session(r.json())
+        try:
+            _load_profile(force=True)
+        except HTTPException:
+            SESS.clear()
+            _save_empty()
+            raise
+        _save()
     return state()
 
 
