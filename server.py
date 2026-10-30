@@ -1474,6 +1474,7 @@ class ChatReq(BaseModel):
     temperature: float = Field(default=0.7, ge=0, le=2)
     effort: float | None = Field(default=None, ge=0, le=100)
     ctx: int | None = Field(default=None, ge=2048, le=16384)
+    max_tokens: int | None = Field(default=None, ge=16, le=4096)
 
 
 @app.post("/api/chat")
@@ -1501,7 +1502,7 @@ def api_chat(req: ChatReq):
         try:
             r = requests.post(OLLAMA + "/api/chat", stream=True, timeout=(10, 900), json={
                 "model": req.model, "messages": msgs, "stream": True, "keep_alive": KEEP,
-                "options": {"num_ctx": req.ctx or CTX, "temperature": req.temperature},
+                "options": {"num_ctx": req.ctx or CTX, "temperature": req.temperature, **({"num_predict": req.max_tokens} if req.max_tokens else {})},
                 **chat_think_args(req.model, req.effort)})
             if r.status_code == 404:
                 yield json.dumps({"error": f"Модель «{req.model}» не скачана. В терминале: ollama pull {req.model}"}) + "\n"

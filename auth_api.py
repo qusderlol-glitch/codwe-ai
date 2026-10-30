@@ -44,7 +44,7 @@ admin_router = APIRouter(prefix="/api/admin")
 # файлы, чьё изменение считается вмешательством
 GUARDED = ["server.py", "auth_api.py", "safety.py", "policy.enc", "safety.sig", "engine.py", "workspace_api.py",
            "codwecode_api.py", "zimage_engine.py", "klein_engine.py", "launcher.py", "dev_api.py", "devlog.py",
-           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/admin.js",
+           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/admin.js", "web/aurora.js",
            "web/dev.js", "web/style.css"]
 
 

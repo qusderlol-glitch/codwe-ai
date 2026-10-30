@@ -342,6 +342,8 @@ function fillBody(el, m, live) {
   if (m.kind === "image") {
     const run = m.status === "queued" || m.status === "running";
     let h = '<div class="chatgen">';
+    const imgTitle = m.modelUsed ? ((S.models && S.models.image[m.modelUsed] && S.models.image[m.modelUsed].title) || m.modelUsed) : "выбирает модель…";
+    if (settings.duo !== false) h += `<div class="duo"><span>💬 Текст: <b>${esc(cur.model || "чат")}</b></span><i>→</i><span>🎨 Картинка: <b>${esc(imgTitle)}</b></span></div>`;
     if (run) h += `<div class="cg-head">🎨 Рисую по запросу: <b>${esc(m.prompt)}</b></div><div class="bar"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div><div class="job-stage"><span>${esc(m.stage || "В очереди…")}</span><span>${Math.round((m.progress || 0) * 100)}%</span></div>`;
     if (m.notes) h += `<div class="cg-note">✨ ${esc(m.notes)}</div>`;
     if (m.images && m.images.length) h += `<div class="chat-media">${m.images.map((r) => mediaHTML(r)).join("")}</div>`;
@@ -359,8 +361,10 @@ function renderChat() {
   const col = $("#chatCol");
   if (!cur.messages.length) {
     col.innerHTML = `<div class="welcome"><img class="hero-logo" src="/static/logo-full.svg" alt="Codwe AI"><h2>Чем могу <em>помочь</em>?</h2><p>Работаю прямо на вашем компьютере — бесплатно и приватно. Пишу код, тексты и отвечаю на вопросы.</p><div class="sugg">${SUGGEST.map((s, i) => `<button data-sg="${i}"><b>${s[0]}</b><span>${s[1]}</span></button>`).join("")}</div></div>`;
+    if (window.codweAurora) window.codweAurora.start();
     return;
   }
+  if (window.codweAurora) window.codweAurora.stop();
   col.innerHTML = cur.messages.map(msgHTML).join("");
   $$(".msg", col).forEach((el) => fillBody(el, cur.messages[+el.dataset.i], false));
   scrollChat(true);
@@ -429,7 +433,7 @@ async function regenerate(idx) {
   await streamReply();
 }
 
-async function streamReply() {
+async function streamReply(opts = {}) {
   const chat = cur;
   const model = cur.model || chooseModel();
   const asst = { role: "assistant", content: "" };
@@ -447,7 +451,7 @@ async function streamReply() {
     const history = cur.messages.slice(0, -1).filter((m) => m.content && m.content.trim()).map(({ role, content }) => ({ role, content }));
     const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json", "X-Codwe": "1" }, signal: ctrl.signal,
-      body: JSON.stringify({ model, system: chatSystem(chat), messages: history, temperature: 0.7, effort: effortPct }),
+      body: JSON.stringify({ model, system: chatSystem(chat) + (opts.system || ""), messages: history, temperature: 0.7, effort: opts.effort ?? effortPct, max_tokens: opts.maxTokens || undefined }),
     });
     if (!res.ok) {
       let msg = res.statusText;
@@ -483,8 +487,9 @@ async function streamReply() {
     fillBody(el, asst, false);
     chat.updated = Date.now();
     saveChats(); renderHistory(); updateSend(); scrollChat(false);
-    if (asst.content && !asst.error) { autoTitle(chat); if (typeof afterAssistant === "function") afterAssistant(chat, asst); }
+    if (asst.content && !asst.error) { autoTitle(chat); if (typeof afterAssistant === "function" && !opts.intro) afterAssistant(chat, asst); }
   }
+  return asst;
 }
 
 // ───────────── картинки прямо в чате ─────────────
@@ -516,7 +521,20 @@ function guessAspect(p) {
   if (/(девушк|парен|мужчин|женщин|человек|портрет|персонаж|девочк|мальчик|аниме|girl|boy|man\b|woman|portrait|character)/.test(t)) return "portrait";
   return "square";
 }
+// «Две модели»: текстовая модель сразу отвечает словами (что задумала), а потом картиночная модель рисует.
+// На видеокарте с 8 ГБ обе сразу не помещаются, поэтому они работают по очереди: слова занимают около 3 секунд.
+async function duoIntro(it) {
+  if (settings.duo === false) return;
+  const chat = cur, idx = chat.messages.length;
+  const what = it.type === "edit" ? `изменить текущую картинку: «${it.request}»` : `нарисовать: «${it.prompt}»`;
+  const sys = `\n\n[Режим «две модели»: ты текстовая модель. Пользователь просит ${what}. Картинку нарисует отдельная модель для изображений, не ты. Ответь по-русски коротко (1–2 предложения): что именно ты задумал (идея, настроение, пара деталей) и что картинка скоро появится. Не пиши код, ссылки и промпт и не говори, что картинка уже готова.]`;
+  try { await streamReply({ system: sys, effort: 0, maxTokens: 90, intro: true }); } catch { /* вступление необязательно */ }
+  const msg = chat.messages[idx];
+  if (msg && (msg.error || !msg.content)) { chat.messages.splice(idx, 1); if (cur === chat) renderChat(); }
+  else if (msg) msg.duo = true;
+}
 async function runIntent(it) {
+  await duoIntro(it);
   if (it.type === "edit") return genInChat(it.request, { edit: it.file });
   return genInChat(it.prompt, {});
 }
@@ -534,7 +552,7 @@ async function genInChat(prompt, opts) {
     for (;;) {
       const j = await api("/api/jobs/" + id);
       m.status = j.status === "error" || j.status === "cancelled" ? "error" : j.status; m.progress = j.progress; m.stage = j.stage;
-      m.notes = j.notes || ""; m.images = j.results || [];
+      m.notes = j.notes || ""; m.images = j.results || []; if (j.model_used) m.modelUsed = j.model_used;
       if (j.status === "error") { m.error = j.error; m.blocked = !!j.blocked; m.blockedInfo = j.blocked_info || null; }
       if (j.status === "cancelled") m.error = "Отменено.";
       repaint();
@@ -1181,13 +1199,14 @@ $("#openSettings").onclick = () => {
   const th = store.get("codwe.theme", "dark");
   const c = openModal(`<h3>Настройки</h3>
     <div><label class="lbl">Тема</label><div class="seg" id="stTheme"><button data-t="dark" class="${th === "dark" ? "active" : ""}">Тёмная</button><button data-t="light" class="${th === "light" ? "active" : ""}">Светлая</button><button data-t="auto" class="${th === "auto" ? "active" : ""}">Как в системе</button></div></div>
-    <div><label class="lbl">Чат</label><label class="check big"><input type="checkbox" id="stArt" ${settings.artifacts ? "checked" : ""}><span><b>Артефакты</b> — ИИ делает сайты, игры и SVG одним файлом, а справа открывается просмотр</span></label><label class="check big"><input type="checkbox" id="stAuto" ${settings.autoOpen ? "checked" : ""}><span>Открывать артефакт автоматически</span></label></div>
+    <div><label class="lbl">Чат</label><label class="check big"><input type="checkbox" id="stArt" ${settings.artifacts ? "checked" : ""}><span><b>Артефакты</b> — ИИ делает сайты, игры и SVG одним файлом, а справа открывается просмотр</span></label><label class="check big"><input type="checkbox" id="stAuto" ${settings.autoOpen ? "checked" : ""}><span>Открывать артефакт автоматически</span></label><label class="check big"><input type="checkbox" id="stDuo" ${settings.duo !== false ? "checked" : ""}><span><b>Две модели в чате</b> — когда просите нарисовать, текстовая модель сначала отвечает словами, а потом картиночная рисует</span></label></div>
     <div><label class="lbl">Приватность</label><p>🔒 <b>Ваши фото и запросы никто не видит.</b> Сервер слушает только этот компьютер (127.0.0.1). Чаты хранятся в вашем браузере, картинки и видео — в папке <code>outputs</code>. Ни разработчик, ни администраторы, ни другие пользователи не могут их открыть: в облако они не отправляются. В облаке лежат только почта, ранг и статус блокировки. В интернет уходит лишь то, что вы сами запустили: поиск в Codwecode или скачивание моделей.</p></div>
     <div class="modal-actions"><button class="btn danger" id="stClear">Очистить историю чатов</button><button class="btn danger" id="stQuit">Остановить сервер</button><button class="btn primary" id="stClose">Готово</button></div>`);
   $("#stTheme", c).onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; store.set("codwe.theme", b.dataset.t); applyTheme(); setSeg("#stTheme", "t", b.dataset.t); };
   $("#stClose", c).onclick = closeModal;
   $("#stArt", c).onchange = (e) => { settings.artifacts = e.target.checked; saveSettings(); };
   $("#stAuto", c).onchange = (e) => { settings.autoOpen = e.target.checked; saveSettings(); };
+  $("#stDuo", c).onchange = (e) => { settings.duo = e.target.checked; saveSettings(); };
   $("#stClear", c).onclick = () => { if (confirm("Удалить все чаты?")) { chats = []; saveChats(); newChat(); closeModal(); toast("История очищена", "ok"); } };
   $("#stQuit", c).onclick = async () => {
     if (!confirm("Остановить сервер Codwe AI? Чтобы запустить снова, откройте start_codwe.bat.")) return;

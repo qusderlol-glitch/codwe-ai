@@ -121,7 +121,7 @@
       : ((r.perms || []).map((p) => `<span class="perm-chip" title="${esc(D.perm_names[p] || p)}">${esc(D.perm_names[p] || p)}</span>`).join("") || `<span class="au-fine">особых прав нет</span>`);
     const form = (r) => {
       const isNew = !r;
-      const v = r || { key: "", name: "", level: 30, color: "#8b5cf6", perms: [] };
+      const v = r || { key: "", name: "", level: 30, color: "#c6f432", perms: [] };
       return `<div class="rk-card rk-edit" style="--rc:${okColor(v.color)}" data-form="${isNew ? "" : esc(v.key)}">
         <div class="rk-grid">
           <label>Ключ (латиницей)<input class="au-in" id="rkKey" ${isNew ? "" : "disabled"} value="${esc(v.key)}" placeholder="vip" maxlength="24"></label>
