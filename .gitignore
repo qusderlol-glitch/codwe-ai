@@ -37,3 +37,7 @@ cloud_config.json
 !tools/build_policy.py
 __pycache__/
 *.pyc
+!dev_api.py
+!devlog.py
+!docs/
+!docs/*

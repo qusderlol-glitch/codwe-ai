@@ -19,9 +19,13 @@ import threading
 import time
 from pathlib import Path
 
+from urllib.parse import quote
+
 import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+import devlog
 
 HERE = Path(__file__).resolve().parent
 CFG_FILE = HERE / "cloud_config.json"
@@ -29,7 +33,7 @@ SESSION_FILE = HERE / "auth_session.json"
 MANIFEST_FILE = HERE / "integrity.json"
 DEV = (HERE / "dev.flag").exists() or os.environ.get("CODWE_DEV") == "1"
 AUTH_OFF = os.environ.get("CODWE_AUTH") == "0"
-TOS_VERSION = 1
+TOS_VERSION = 2
 TOS_MIN_SECONDS = 20
 PROFILE_TTL = 90          # как часто перепроверяем профиль (бан срабатывает не позже чем через столько секунд)
 OFFLINE_GRACE = 12 * 3600  # сколько часов можно работать без связи с облаком
@@ -39,8 +43,9 @@ admin_router = APIRouter(prefix="/api/admin")
 
 # файлы, чьё изменение считается вмешательством
 GUARDED = ["server.py", "auth_api.py", "safety.py", "policy.enc", "safety.sig", "engine.py", "workspace_api.py",
-           "codwecode_api.py", "zimage_engine.py", "klein_engine.py", "launcher.py",
-           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/style.css"]
+           "codwecode_api.py", "zimage_engine.py", "klein_engine.py", "launcher.py", "dev_api.py", "devlog.py",
+           "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/admin.js",
+           "web/dev.js", "web/style.css"]
 
 
 # ───────── целостность ─────────
@@ -189,9 +194,100 @@ def _store_session(d):
     SESS.pop("last_error", None)
 
 
+# ───────── ранги и права (как роли в Discord) ─────────
+# Названия прав на понятном языке: они же показываются в админ-панели и в DEV-консоли.
+PERMS = {
+    "users.view": "Видеть список пользователей и журнал",
+    "users.ban": "Блокировать и разблокировать (только тех, кто ниже рангом)",
+    "users.rank": "Выдавать ранги (только ниже своего)",
+    "access.manage": "Пароль доступа, сброс доступа, код подключения",
+    "models.manage": "Блокировать и разблокировать модели для всех",
+    "safety.toggle": "Включать и выключать режим безопасности для всех",
+    "dev.console": "Открывать вкладку DEV-консоль",
+}
+OWNER_KEY = "owner"
+# если облако ещё не обновлено файлом supabase/ranks.sql, работаем по-старому: admin / user
+LEGACY_RANKS = [
+    {"key": "admin", "name": "Администратор", "level": 80, "color": "#ef4444",
+     "perms": ["users.view", "users.ban", "users.rank", "access.manage", "dev.console"]},
+    {"key": "user", "name": "Пользователь", "level": 10, "color": "#8d95aa", "perms": []},
+]
+_ranks = {"t": 0.0, "list": None, "legacy": False}
+
+
+def _ranks_list(force=False):
+    """Список рангов из облака (кеш 5 минут). Если таблицы рангов в облаке нет, возвращает запасной список."""
+    if not force and _ranks["list"] and time.time() - _ranks["t"] < 300:
+        return _ranks["list"]
+    r = _sb("GET", "/rest/v1/ranks?select=*&order=level.desc", SESS["access"])
+    if r.status_code == 200 and isinstance(r.json(), list) and r.json():
+        _ranks.update(t=time.time(), list=r.json(), legacy=False)
+    elif r.status_code in (404, 400) or (r.status_code == 200 and not r.json()):
+        _ranks.update(t=time.time(), list=LEGACY_RANKS, legacy=True)
+    elif not _ranks["list"]:
+        raise HTTPException(503, _err(r, "Не удалось получить ранги")[0])
+    return _ranks["list"]
+
+
+def _rank_of(role):
+    lst = _ranks["list"] or LEGACY_RANKS  # без сети: берём то, что уже загружено
+    return next((x for x in lst if x["key"] == role), None) or next((x for x in lst if x["key"] == "user"), LEGACY_RANKS[-1])
+
+
+def perms_of(role):
+    r = _rank_of(role)
+    if r["key"] == OWNER_KEY:
+        return list(PERMS)
+    return [x for x in (r.get("perms") or []) if x in PERMS]
+
+
+def my_perms():
+    p = SESS.get("profile") or {}
+    return perms_of(p.get("role", "user")) if SESS.get("access") else []
+
+
+def my_level():
+    p = SESS.get("profile") or {}
+    return int(_rank_of(p.get("role", "user"))["level"]) if SESS.get("access") else 0
+
+
+def has_perm(perm):
+    return perm in my_perms()
+
+
+# ───────── политика (общие настройки для всех): заблокированные модели и режим безопасности ─────────
+def _load_policy():
+    """Забирает из облака список заблокированных моделей и режим безопасности. Нет связи — остаётся прошлое значение."""
+    if _ranks["legacy"]:
+        return
+    r = _sb("POST", "/rest/v1/rpc/get_policy", SESS["access"], data="{}")
+    if r.status_code == 200 and isinstance(r.json(), dict):
+        j = r.json()
+        SESS["policy"] = {"blocked_models": [str(x) for x in (j.get("blocked_models") or [])][:200],
+                          "safety_soft": j.get("safety_soft") is not False}
+
+
+def policy():
+    p = SESS.get("policy") or {}
+    return {"blocked_models": list(p.get("blocked_models") or []), "safety_soft": p.get("safety_soft", True) is not False}
+
+
+def model_blocked(model_id):
+    if not required():
+        return False
+    return model_id in (SESS.get("policy") or {}).get("blocked_models", [])
+
+
+def soft_safety():
+    """True — откровенный 18+ и gore блокируются. Выключить может только ранг с правом safety.toggle (через облако)."""
+    if not required():
+        return True
+    return policy()["safety_soft"]
+
+
 def _load_profile(force=False):
     """Профиль из облака (роль, бан, условия). Бан немедленно выкидывает пользователя."""
-    if not force and SESS.get("profile") and time.time() - SESS.get("profile_ts", 0) < PROFILE_TTL:
+    if not force and SESS.get("profile") and _ranks["list"] and time.time() - SESS.get("profile_ts", 0) < PROFILE_TTL:
         return
     r = _sb("GET", f"/rest/v1/profiles?id=eq.{SESS['uid']}&select=*", SESS["access"])
     if r.status_code == 404 or (r.status_code == 200 and not r.json()):
@@ -199,13 +295,18 @@ def _load_profile(force=False):
     if r.status_code != 200:
         raise HTTPException(503, _err(r, "Не удалось получить профиль")[0])
     p = r.json()[0]
-    if "access_ok" in p and not p["access_ok"] and p.get("role") != "admin":
+    _ranks_list(force)
+    if "access_ok" in p and not p["access_ok"] and "access.manage" not in perms_of(p.get("role", "user")):
         # если пароль доступа не задан, облако пропускает пустой пароль и отмечает доступ открытым
         r2 = _sb("POST", "/rest/v1/rpc/check_access_password", SESS["access"], data=json.dumps({"pw": ""}))
         if r2.status_code == 200 and r2.json() is True:
             r3 = _sb("GET", f"/rest/v1/profiles?id=eq.{SESS['uid']}&select=*", SESS["access"])
             if r3.status_code == 200 and r3.json():
                 p = r3.json()[0]
+    try:
+        _load_policy()
+    except HTTPException:
+        pass  # нет связи: действует прошлое значение
     SESS.update(profile=p, profile_ts=time.time(), ok_ts=time.time())
     if p.get("banned"):
         why = p.get("ban_reason") or "нарушение правил"
@@ -253,7 +354,9 @@ def state():
     ok_i, why_i = integrity()
     out = {"required": required(), "configured": configured(), "dev": DEV, "tampered": not ok_i, "tamper_reason": why_i,
            "logged_in": False, "email": "", "role": "user", "tos_ok": False, "tos_version": TOS_VERSION,
-           "banned": False, "notice": "", "access_ok": False, "needs_connect": False}
+           "banned": False, "notice": "", "access_ok": False, "needs_connect": False,
+           "rank_name": "Пользователь", "rank_color": "#8d95aa", "level": 10, "perms": [], "legacy": False,
+           "policy": {"blocked_models": [], "safety_soft": True}}
     if required() and not configured():
         out["needs_connect"] = True
         return out
@@ -267,9 +370,13 @@ def state():
             out["notice"] = str(e.detail)
         if SESS.get("access") and SESS.get("profile"):
             p = SESS["profile"]
+            rk = _rank_of(p.get("role", "user"))
+            perms = my_perms()
             out.update(logged_in=True, email=SESS.get("email", ""), role=p.get("role", "user"),
+                       rank_name=rk["name"], rank_color=rk.get("color", "#8d95aa"), level=int(rk["level"]), perms=perms,
+                       legacy=_ranks["legacy"], policy=policy(),
                        tos_ok=p.get("tos_version") == TOS_VERSION,
-                       access_ok=("access_ok" not in p) or bool(p.get("access_ok")) or p.get("role") == "admin")
+                       access_ok=("access_ok" not in p) or bool(p.get("access_ok")) or "access.manage" in perms)
         else:
             le = SESS.get("last_error", "")
             if le.startswith("banned:"):
@@ -366,6 +473,7 @@ def api_verify(req: VerifyReq):
             _clear()
             raise
         _save()
+    devlog.log("auth", f"Вход выполнен: {email}")
     return state()
 
 
@@ -443,6 +551,7 @@ def api_logout():
             d.pop(mail, None)
             _acc_write(d)
         _clear()
+    devlog.log("auth", f"Выход из аккаунта {mail or ''}".strip())
     return state()
 
 
@@ -530,12 +639,22 @@ def api_access(req: AccessReq):
 
 # ───────── условия использования + проверка «прочитал ли» ─────────
 TOS_SECTIONS = [
-    ("Что это", "Codwe AI — программа, которая работает на вашем компьютере. Картинки, видео, чаты и промпты обрабатываются "
-                "и хранятся у вас и никуда не отправляются."),
-    ("Что хранится в облаке", "Только ваша почта, роль (пользователь или администратор), статус блокировки и время последнего входа. "
-                              "Ни ваши картинки, ни чаты, ни промпты в облако не попадают."),
-    ("Что запрещено", "Сексуальный контент с несовершеннолетними (блокируется всегда и не обходится), откровенный 18+ контент и "
-                      "жестокий gore (блокируются автоматически), всё, что нарушает закон, и попытки обойти защиту."),
+    ("🔒 Приватность: никто не видит ваши фото и запросы",
+     "Все ваши картинки, видео, чаты и запросы создаются и хранятся ТОЛЬКО на вашем компьютере (папки outputs и uploads, чаты в "
+     "вашем браузере). Их не видят ни разработчик, ни владелец, ни администраторы, ни другие пользователи: в облако они не "
+     "отправляются, и у программы нет ни одной функции, которая бы их собирала."),
+    ("Что хранится в облаке", "Только ваша почта, ранг (например, пользователь или модератор), статус блокировки, время последнего "
+                              "входа и записи о действиях администрации (кто кого заблокировал). Ваши картинки, чаты и промпты в облако "
+                              "не попадают."),
+    ("Когда данные всё же уходят в интернет", "Только когда вы сами используете интернет-функции: поиск в агенте Codwecode (поисковая "
+                                              "фраза уходит поисковику) и скачивание моделей при установке. Тексты ваших картинок и чатов при "
+                                              "этом никуда не отправляются."),
+    ("Что такое ранги", "У каждого аккаунта есть ранг, как роль в Discord. Высший ранг не может быть заблокирован или понижен теми, "
+                        "кто ниже. Администрация может блокировать отдельные модели и менять режим безопасности для всех: вы увидите это "
+                        "в щите вверху программы."),
+    ("Что запрещено", "Сексуальный контент с несовершеннолетними (блокируется всегда и не отключается ни одним рангом), всё, что нарушает "
+                      "закон, и попытки обойти защиту. Откровенный 18+ контент и жестокий gore по умолчанию блокируются автоматически; "
+                      "администрация может изменить этот режим, это отображается в щите вверху."),
     ("Ответственность", "Вы сами отвечаете за то, что создаёте и как используете результат. Программа и модели даются «как есть», без "
                         "гарантий. У моделей свои лицензии (Qwen, Z-Image, FLUX.2 klein, SD-Turbo и др.): некоммерческие модели нельзя "
                         "использовать в коммерческих целях."),
@@ -548,8 +667,10 @@ QUIZ = [
      "opts": [("pc", "На вашем компьютере"), ("srv", "На сервере разработчика"), ("cloud", "В облаке большой компании")], "ok": "pc"},
     {"id": "cloud", "q": "Что хранится в облаке?",
      "opts": [("mail", "Почта, роль и статус блокировки"), ("img", "Ваши картинки"), ("chat", "Ваши чаты и промпты")], "ok": "mail"},
-    {"id": "banned", "q": "Что запрещено всегда и не обходится?",
+    {"id": "banned", "q": "Что запрещено всегда и не отключается?",
      "opts": [("minor", "Сексуальный контент с несовершеннолетними"), ("cats", "Рисовать котов"), ("ru", "Писать по-русски")], "ok": "minor"},
+    {"id": "who", "q": "Кто может увидеть ваши фото и запросы?",
+     "opts": [("nobody", "Никто: они лежат только на вашем компьютере"), ("admin", "Администраторы"), ("all", "Все пользователи программы")], "ok": "nobody"},
 ]
 _tos = {}
 
@@ -597,15 +718,41 @@ def api_tos_accept(req: TosAccept):
     return state()
 
 
-# ───────── админ-панель (права проверяет база данных) ─────────
-def _need_admin():
+# ───────── админ-панель (права и иерархию рангов проверяет база данных) ─────────
+# Приложение только заранее отсекает лишнее и показывает понятные сообщения. Настоящая защита — в облаке
+# (supabase/ranks.sql): даже если изменить эту программу, облако не даст забанить того, кто выше или равен по рангу.
+def _need(perm):
     with _L:
         if not SESS.get("access"):
             raise HTTPException(401, "Войдите в аккаунт.")
         _refresh_if_needed()
         _load_profile(force=True)
-        if SESS["profile"].get("role") != "admin":
-            raise HTTPException(403, "Нужны права администратора.")
+        if perm not in my_perms():
+            raise HTTPException(403, "Не хватает прав: " + PERMS.get(perm, perm) + ".")
+
+
+def _need_owner():
+    with _L:
+        if not SESS.get("access"):
+            raise HTTPException(401, "Войдите в аккаунт.")
+        _refresh_if_needed()
+        _load_profile(force=True)
+        if (SESS.get("profile") or {}).get("role") != OWNER_KEY:
+            raise HTTPException(403, "Это может делать только владелец.")
+
+
+def _rpc(name, payload, default_err):
+    r = _sb("POST", f"/rest/v1/rpc/{name}", SESS["access"], data=json.dumps(payload))
+    if r.status_code not in (200, 204):
+        msg = _err(r, default_err)[0]
+        if "Could not find the function" in msg or r.status_code == 404:
+            msg = "В облаке нет нужных функций. Запустите файл supabase/ranks.sql в Supabase (SQL Editor)."
+        raise HTTPException(400, msg)
+    return r
+
+
+def _me():
+    return SESS.get("email", "?")
 
 
 class BanReq(BaseModel):
@@ -622,68 +769,223 @@ class AccessPwReq(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class RoleReq(BaseModel):
+    id: str = Field(pattern=r"^[0-9a-fA-F\-]{36}$")
+    role: str = Field(pattern=r"^[a-z][a-z0-9_]{1,23}$")
+
+
+class ModelBlockReq(BaseModel):
+    model: str = Field(pattern=r"^[a-z]{3,8}:[A-Za-z0-9._:/\-]{1,100}$")
+    blocked: bool
+
+
+class SafetyAdminReq(BaseModel):
+    enabled: bool
+    confirm_adult: bool = False
+
+
+class RankReq(BaseModel):
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{1,23}$")
+    name: str = Field(min_length=1, max_length=24)
+    level: int = Field(ge=1, le=99)
+    color: str = Field(default="#8d95aa", pattern=r"^#[0-9a-fA-F]{6}$")
+    perms: list[str] = Field(default_factory=list, max_length=20)
+
+
+class RankDelReq(BaseModel):
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{1,23}$")
+
+
+# — действия (их же вызывает DEV-консоль) —
+def do_ban(target, flag, reason="", label=""):
+    _need("users.ban")
+    _rpc("admin_set_ban", {"target": target, "flag": flag, "reason": reason or None}, "Не удалось изменить блокировку")
+    devlog.log("admin", f"{_me()}: {'блокировка' if flag else 'разблокировка'} пользователя {label or target[:8] + '…'}" + (f" ({reason})" if reason else ""))
+
+
+def do_role(target, role, label=""):
+    _need("users.rank")
+    _rpc("admin_set_role", {"target": target, "new_role": role}, "Не удалось изменить ранг")
+    devlog.log("admin", f"{_me()}: пользователю {label or target[:8] + '…'} выдан ранг «{role}»")
+
+
+def do_model_block(model, blocked):
+    _need("models.manage")
+    _rpc("admin_set_model_block", {"model": model, "flag": blocked}, "Не удалось изменить блокировку модели")
+    with _L:
+        _load_profile(force=True)
+    devlog.log("admin", f"{_me()}: модель {model} {'ЗАБЛОКИРОВАНА' if blocked else 'разблокирована'} для всех")
+
+
+def do_safety(enabled, confirm_adult=False):
+    _need("safety.toggle")
+    if not enabled and not confirm_adult:
+        raise HTTPException(400, "Чтобы выключить режим безопасности, подтвердите, что вам есть 18 лет и вы отвечаете за результат.")
+    _rpc("admin_set_safety", {"flag": enabled}, "Не удалось изменить режим безопасности")
+    with _L:
+        _load_profile(force=True)
+    devlog.log("admin", f"{_me()}: режим безопасности (18+/gore) {'ВКЛЮЧЁН' if enabled else 'ВЫКЛЮЧЕН'} для всех")
+
+
+def do_rank_save(key, name, level, color, perms):
+    _need_owner()
+    bad = [x for x in perms if x not in PERMS]
+    if bad:
+        raise HTTPException(400, "Неизвестное право: " + ", ".join(bad))
+    _rpc("owner_set_rank", {"k": key, "n": name, "lvl": level, "col": color, "prm": perms}, "Не удалось сохранить ранг")
+    with _L:
+        _load_profile(force=True)
+    devlog.log("admin", f"{_me()}: ранг «{key}» сохранён (уровень {level}, прав: {len(perms)})")
+
+
+def do_rank_delete(key):
+    _need_owner()
+    _rpc("owner_delete_rank", {"k": key}, "Не удалось удалить ранг")
+    with _L:
+        _load_profile(force=True)
+    devlog.log("admin", f"{_me()}: ранг «{key}» удалён, его участники стали «Пользователь»")
+
+
+def do_access_reset(target, label=""):
+    _need("access.manage")
+    _rpc("admin_reset_access", {"target": target}, "Не удалось сбросить")
+    devlog.log("admin", f"{_me()}: сброс доступа пользователя {label or target[:8] + '…'}")
+
+
+def list_users():
+    _need("users.view")
+    r = _sb("GET", "/rest/v1/profiles?select=*&order=created_at.desc&limit=500", SESS["access"])
+    if r.status_code != 200:
+        raise HTTPException(503, _err(r, "Не удалось получить список")[0])
+    return r.json()
+
+
+def find_user(email):
+    _need("users.view")
+    email = (email or "").strip().lower()
+    if not EMAIL_RX.match(email):
+        raise HTTPException(400, "Похоже, почта написана с ошибкой: " + email)
+    r = _sb("GET", "/rest/v1/profiles?select=*&email=eq." + quote(email, safe=""), SESS["access"])
+    if r.status_code != 200:
+        raise HTTPException(503, _err(r, "Не удалось найти пользователя")[0])
+    rows = r.json()
+    if not rows:
+        raise HTTPException(404, "Такого пользователя нет: " + email)
+    return rows[0]
+
+
+def get_audit(n=60):
+    _need("users.view")
+    r = _sb("POST", "/rest/v1/rpc/get_audit", SESS["access"], data=json.dumps({"n": int(n)}))
+    if r.status_code != 200:
+        msg = _err(r, "Не удалось получить журнал")[0]
+        if "Could not find the function" in msg or r.status_code == 404:
+            msg = "Журнал появится после запуска supabase/ranks.sql."
+        raise HTTPException(400, msg)
+    return r.json()
+
+
+def ranks_now():
+    with _L:
+        return _ranks_list()
+
+
+def refresh_all():
+    with _L:
+        if not SESS.get("access"):
+            raise HTTPException(401, "Войдите в аккаунт.")
+        _refresh_if_needed()
+        _ranks_list(True)
+        _load_profile(force=True)
+
+
+# — маршруты —
 @admin_router.post("/access-password")
 def admin_access_password(req: AccessPwReq):
-    _need_admin()
-    r = _sb("POST", "/rest/v1/rpc/admin_set_access_password", SESS["access"], data=json.dumps({"pw": req.password}))
-    if r.status_code not in (200, 204):
-        raise HTTPException(400, _err(r, "Не удалось задать пароль (запущен ли supabase/access_password.sql?)")[0])
+    _need("access.manage")
+    _rpc("admin_set_access_password", {"pw": req.password}, "Не удалось задать пароль (запущен ли supabase/access_password.sql?)")
+    devlog.log("admin", f"{_me()}: пароль доступа изменён")
     return {"ok": True}
 
 
 @admin_router.post("/access-clear")
 def admin_access_clear():
-    _need_admin()
-    r = _sb("POST", "/rest/v1/rpc/admin_clear_access_password", SESS["access"], data="{}")
-    if r.status_code not in (200, 204):
-        raise HTTPException(400, _err(r, "Не удалось снять пароль")[0])
+    _need("access.manage")
+    _rpc("admin_clear_access_password", {}, "Не удалось снять пароль")
+    devlog.log("admin", f"{_me()}: пароль доступа снят")
     return {"ok": True}
 
 
 @admin_router.post("/access-reset")
 def admin_access_reset(req: IdReq):
-    _need_admin()
-    r = _sb("POST", "/rest/v1/rpc/admin_reset_access", SESS["access"], data=json.dumps({"target": req.id}))
-    if r.status_code not in (200, 204):
-        raise HTTPException(400, _err(r, "Не удалось сбросить")[0])
+    do_access_reset(req.id)
     return {"ok": True}
-
-
-class RoleReq(BaseModel):
-    id: str = Field(pattern=r"^[0-9a-fA-F\-]{36}$")
-    role: str = Field(pattern="^(user|admin)$")
 
 
 @admin_router.get("/connect-code")
 def admin_connect_code():
-    _need_admin()
+    _need("access.manage")
     return {"code": make_connect_code()}
+
+
+def _overview():
+    with _L:
+        if not SESS.get("access"):
+            raise HTTPException(401, "Войдите в аккаунт.")
+        _refresh_if_needed()
+        _load_profile(force=True)
+        return {"me": SESS.get("uid"), "my_level": my_level(), "ranks": _ranks_list(), "perms": my_perms(),
+                "perm_names": PERMS, "legacy": _ranks["legacy"],
+                "is_owner": (SESS.get("profile") or {}).get("role") == OWNER_KEY, "policy": policy()}
+
+
+@admin_router.get("/overview")
+def admin_overview():
+    return _overview()
 
 
 @admin_router.get("/users")
 def admin_users():
-    _need_admin()
-    r = _sb("GET", "/rest/v1/profiles?select=*&order=created_at.desc&limit=500",
-            SESS["access"])
-    if r.status_code != 200:
-        raise HTTPException(503, _err(r, "Не удалось получить список")[0])
-    return {"users": r.json(), "me": SESS.get("uid")}
+    users = list_users()
+    return {"users": users, **_overview()}
 
 
 @admin_router.post("/ban")
 def admin_ban(req: BanReq):
-    _need_admin()
-    r = _sb("POST", "/rest/v1/rpc/admin_set_ban", SESS["access"],
-            data=json.dumps({"target": req.id, "flag": req.banned, "reason": req.reason or None}))
-    if r.status_code not in (200, 204):
-        raise HTTPException(400, _err(r, "Не удалось изменить блокировку")[0])
+    do_ban(req.id, req.banned, req.reason)
     return {"ok": True}
 
 
 @admin_router.post("/role")
 def admin_role(req: RoleReq):
-    _need_admin()
-    r = _sb("POST", "/rest/v1/rpc/admin_set_role", SESS["access"], data=json.dumps({"target": req.id, "new_role": req.role}))
-    if r.status_code not in (200, 204):
-        raise HTTPException(400, _err(r, "Не удалось изменить роль")[0])
+    do_role(req.id, req.role)
+    return {"ok": True}
+
+
+@admin_router.post("/models")
+def admin_models(req: ModelBlockReq):
+    do_model_block(req.model, req.blocked)
+    return {"ok": True, "policy": policy()}
+
+
+@admin_router.post("/safety")
+def admin_safety(req: SafetyAdminReq):
+    do_safety(req.enabled, req.confirm_adult)
+    return {"ok": True, "policy": policy()}
+
+
+@admin_router.get("/audit")
+def admin_audit():
+    return {"log": get_audit(80)}
+
+
+@admin_router.post("/rank-save")
+def admin_rank_save(req: RankReq):
+    do_rank_save(req.key, req.name, req.level, req.color, req.perms)
+    return {"ok": True}
+
+
+@admin_router.post("/rank-delete")
+def admin_rank_delete(req: RankDelReq):
+    do_rank_delete(req.key)
     return {"ok": True}

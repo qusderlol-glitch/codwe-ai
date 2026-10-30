@@ -27,16 +27,19 @@
     await loadAccounts();
     menu = document.createElement("div");
     menu.className = "ac-menu";
-    const admin = st && st.role === "admin";
+    const perms = (st && st.perms) || [];
+    const staff = ["users.view", "models.manage", "safety.toggle", "access.manage"].some((p) => perms.includes(p));
+    const rc = /^#[0-9a-f]{6}$/i.test(st.rank_color) ? st.rank_color : "#8d95aa";
     menu.innerHTML = `
-      <div class="ac-head">${av(st.email, true)}<div class="ac-who"><b>${esc(st.email)}</b><span>${admin ? "Администратор" : "Пользователь"} · Codwe AI</span></div></div>
+      <div class="ac-head">${av(st.email, true)}<div class="ac-who"><b>${esc(st.email)}</b><span class="rk-pill" style="--rc:${rc}">${esc(st.rank_name || "Пользователь")}</span></div></div>
       ${accounts.length ? `<div class="ac-sep"></div><div class="ac-lbl">Другие аккаунты</div>${accounts.map((e) => `<button class="ac-item" data-sw="${esc(e)}">${av(e)}<span>${esc(e)}</span></button>`).join("")}` : ""}
       <button class="ac-item" data-act="add"><span class="ac-ic">＋</span><span>Добавить аккаунт</span></button>
       <div class="ac-sep"></div>
-      ${admin ? `<button class="ac-item" data-act="admin"><span class="ac-ic">👑</span><span>Пользователи и права</span></button>
-      <button class="ac-item" data-act="code"><span class="ac-ic">🔗</span><span>Код подключения</span></button>` : ""}
+      ${staff ? `<button class="ac-item" data-act="admin"><span class="ac-ic">👑</span><span>Управление</span></button>` : ""}
+      ${perms.includes("access.manage") ? `<button class="ac-item" data-act="code"><span class="ac-ic">🔗</span><span>Код подключения</span></button>` : ""}
       <button class="ac-item" data-act="settings"><span class="ac-ic">⚙</span><span>Настройки</span></button>
       <div class="ac-sep"></div>
+      <div class="ac-priv">🔒 Ваши фото и запросы хранятся только на этом компьютере. Их никто не видит.</div>
       <button class="ac-item danger" data-act="out"><span class="ac-ic">⎋</span><span>Выйти</span></button>`;
     document.body.appendChild(menu);
     const r = btn.getBoundingClientRect();

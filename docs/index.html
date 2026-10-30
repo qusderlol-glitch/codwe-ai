@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Codwe AI: свой ИИ на вашем компьютере</title>
+<meta name="description" content="Codwe AI: чат, код, картинки, видео и редактор фото. Всё работает на вашем компьютере, ваши фото и запросы никто не видит.">
+<link rel="icon" href="https://raw.githubusercontent.com/qusderlol-glitch/codwe-ai/master/web/logo.svg">
+<style>
+  :root { --bg:#080a10; --surface:#10131b; --surface2:#161a24; --border:#242a3a; --text:#e9ecf4; --muted:#9aa3b8; --accent:#8b5cf6; --cyan:#22d3ee; --on:#34d399; --warn:#fbbf24;
+    --grad:linear-gradient(135deg,#8b5cf6 0%,#5b8cff 55%,#22d3ee 100%); --font:Inter,"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; --mono:"Cascadia Code",Consolas,monospace; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--font); line-height:1.6; -webkit-font-smoothing:antialiased; }
+  body::before { content:""; position:fixed; inset:0; z-index:-1; background:radial-gradient(60% 50% at 15% 0%,rgba(139,92,246,.28),transparent 70%),radial-gradient(50% 45% at 90% 10%,rgba(34,211,238,.18),transparent 70%); }
+  a { color:var(--cyan); }
+  .wrap { width:min(1040px,100% - 32px); margin:0 auto; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:18px 0; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:20px; letter-spacing:-.01em; }
+  .brand i { width:34px; height:34px; border-radius:11px; background:var(--grad); display:grid; place-items:center; font-style:normal; color:#fff; font-size:16px; }
+  nav a { color:var(--muted); text-decoration:none; margin-left:18px; font-size:14.5px; } nav a:hover { color:var(--text); }
+  .hero { text-align:center; padding:56px 0 40px; }
+  .hero h1 { font-size:clamp(34px,6vw,60px); line-height:1.08; margin:0 0 16px; letter-spacing:-.03em; }
+  .hero h1 span { background:var(--grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .hero p { color:var(--muted); font-size:clamp(16px,2.2vw,19px); max-width:680px; margin:0 auto 28px; }
+  .btn { display:inline-flex; align-items:center; gap:10px; padding:15px 28px; border-radius:16px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font:inherit; font-weight:650; font-size:16px; text-decoration:none; cursor:pointer; transition:.18s; }
+  .btn:hover { transform:translateY(-2px); border-color:#3a4460; }
+  .btn.primary { background:var(--grad); border:0; color:#fff; box-shadow:0 12px 40px rgba(91,140,255,.35); } .btn.primary:hover { box-shadow:0 16px 50px rgba(91,140,255,.5); }
+  .fine { color:var(--muted); font-size:13.5px; margin-top:14px; }
+  .privacy { display:flex; gap:14px; align-items:flex-start; padding:16px 20px; border-radius:18px; border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.08); margin:10px auto 0; max-width:760px; text-align:left; }
+  .privacy b { color:var(--on); }
+  section { padding:44px 0; } h2 { font-size:clamp(24px,4vw,34px); margin:0 0 8px; letter-spacing:-.02em; } .sub { color:var(--muted); margin:0 0 26px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+  .card { padding:20px; border-radius:18px; border:1px solid var(--border); background:var(--surface); } .card .ic { font-size:26px; margin-bottom:8px; } .card h3 { margin:0 0 6px; font-size:17px; } .card p { margin:0; color:var(--muted); font-size:14.5px; }
+  .steps { counter-reset:s; display:grid; gap:12px; padding:0; list-style:none; }
+  .steps li { counter-increment:s; display:flex; gap:16px; align-items:flex-start; padding:18px 20px; border-radius:18px; border:1px solid var(--border); background:var(--surface); }
+  .steps li::before { content:counter(s); flex:none; width:34px; height:34px; border-radius:50%; background:var(--grad); display:grid; place-items:center; font-weight:800; color:#fff; }
+  .steps b { display:block; margin-bottom:2px; } .steps span { color:var(--muted); font-size:14.5px; }
+  table { width:100%; border-collapse:collapse; font-size:14.5px; border:1px solid var(--border); border-radius:14px; overflow:hidden; } td,th { padding:11px 14px; text-align:left; border-bottom:1px solid var(--border); } th { background:var(--surface2); color:var(--muted); font-weight:600; width:34%; } tr:last-child td,tr:last-child th { border-bottom:0; }
+  details { border:1px solid var(--border); border-radius:14px; background:var(--surface); margin-bottom:10px; padding:2px 18px; } summary { cursor:pointer; font-weight:650; padding:14px 0; } details p { color:var(--muted); margin:0 0 14px; font-size:14.5px; }
+  .warn { border-color:rgba(251,191,36,.4); background:rgba(251,191,36,.07); }
+  footer { padding:36px 0 60px; color:var(--muted); font-size:13.5px; border-top:1px solid var(--border); }
+  code { font-family:var(--mono); background:var(--surface2); padding:1px 6px; border-radius:6px; font-size:.92em; }
+  @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .btn { transition:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><i>✦</i>Codwe AI</div>
+    <nav><a href="#features">Что умеет</a><a href="#install">Установка</a><a href="#faq">Вопросы</a></nav>
+  </header>
+
+  <div class="hero">
+    <h1>Свой ИИ<br><span>на вашем компьютере</span></h1>
+    <p>Чат, помощник для кода, картинки, редактор фото и видео. Работает на вашей видеокарте, бесплатно, без подписок.</p>
+    <a class="btn primary" id="dl" href="https://github.com/qusderlol-glitch/codwe-ai/archive/refs/heads/master.zip">⬇ Скачать для Windows</a>
+    <div class="fine">Windows 10/11 · видеокарта NVIDIA от 6 ГБ · около 25 ГБ свободного места</div>
+    <div class="privacy"><span style="font-size:24px">🔒</span><div><b>Ваши фото и запросы никто не видит.</b> Картинки, видео и чаты создаются и хранятся только на вашем компьютере. Ни разработчик, ни администраторы, ни другие пользователи не имеют к ним доступа.</div></div>
+  </div>
+
+  <section id="features">
+    <h2>Что умеет</h2>
+    <p class="sub">Всё в одном окне, всё работает у вас дома.</p>
+    <div class="grid">
+      <div class="card"><div class="ic">💬</div><h3>Чат</h3><p>Умный помощник на русском. Пишет тексты, объясняет простыми словами, помогает с учёбой.</p></div>
+      <div class="card"><div class="ic">💻</div><h3>Codwecode</h3><p>Агент, который пишет программу, запускает её, смотрит на экран и сам исправляет ошибки.</p></div>
+      <div class="card"><div class="ic">🎨</div><h3>Картинки</h3><p>Реалистичные фото и аниме по описанию. Хорошо понимает длинные подробные запросы.</p></div>
+      <div class="card"><div class="ic">✏️</div><h3>Редактор</h3><p>Меняйте готовые картинки словами: «сделай небо закатным».</p></div>
+      <div class="card"><div class="ic">⚡</div><h3>Live</h3><p>Картинка рисуется прямо пока вы печатаете.</p></div>
+      <div class="card"><div class="ic">🎬</div><h3>Видео</h3><p>Оживляйте картинки в короткие видео.</p></div>
+    </div>
+  </section>
+
+  <section id="install">
+    <h2>Как установить</h2>
+    <p class="sub">Три шага. Установщик сам всё скачает и объяснит каждый пункт простыми словами.</p>
+    <ol class="steps">
+      <li><div><b>Скачайте и распакуйте</b><span>Нажмите «Скачать для Windows», распакуйте архив в простую папку, например <code>C:\CodweAI</code> (без русских букв и пробелов).</span></div></li>
+      <li><div><b>Запустите установщик</b><span>Дважды щёлкните <code>Install Codwe AI.bat</code> и не закрывайте чёрное окно, пока идёт установка.</span></div></li>
+      <li><div><b>Следуйте окну-мастеру</b><span>Если не уверены, нажимайте «Далее»: мастер сам выберет подходящее. Потом на рабочем столе появится ярлык Codwe AI.</span></div></li>
+    </ol>
+    <p class="fine">Для входа понадобятся <b>код подключения</b> и <b>пароль доступа</b>. Их выдаёт тот, кто дал вам программу.</p>
+  </section>
+
+  <section>
+    <h2>Что нужно от компьютера</h2>
+    <table>
+      <tr><th>Система</th><td>Windows 10 или 11</td></tr>
+      <tr><th>Видеокарта</th><td>NVIDIA от 6 ГБ памяти (лучше 8 ГБ и больше). Без неё работает только чат, и медленно</td></tr>
+      <tr><th>Оперативная память</th><td>16 ГБ и больше</td></tr>
+      <tr><th>Место на диске</th><td>около 25 ГБ для всех моделей (можно выбрать только нужные)</td></tr>
+      <tr><th>Интернет</th><td>нужен при установке и для входа по почте</td></tr>
+    </table>
+  </section>
+
+  <section id="faq">
+    <h2>Частые вопросы</h2>
+    <details class="warn"><summary>Windows пишет «Интеллектуальное управление приложениями заблокировало файл»</summary>
+      <p>Это защита Windows 11 (Smart App Control). Она блокирует файлы из интернета, у которых нет платной цифровой подписи разработчика. У Codwe AI такой подписи пока нет. Это не вирус: исходный код открыт, его можно проверить на GitHub. Если Smart App Control у вас включён в строгом режиме, Windows не даст запустить установщик. Выбор за вами: либо подождать версию с подписью, либо самостоятельно изменить этот параметр Windows (Параметры → Конфиденциальность и защита → Безопасность Windows → Управление приложениями и браузером). Учтите, что включить его обратно можно только переустановкой Windows.</p></details>
+    <details><summary>Windows показывает «Защитник Windows SmartScreen предотвратил запуск»</summary>
+      <p>Нажмите «Подробнее», затем «Выполнить в любом случае». Причина та же: у программы пока нет платной подписи.</p></details>
+    <details><summary>Мои фото и запросы кто-нибудь видит?</summary>
+      <p>Нет. Они хранятся только на вашем компьютере. В облаке лежат только почта, ранг и статус блокировки. В интернет уходит лишь то, что вы сами запустили: поиск в Codwecode и скачивание моделей.</p></details>
+    <details><summary>Почему есть блокировка некоторых запросов?</summary>
+      <p>Сексуальный контент с несовершеннолетними блокируется всегда. Откровенный 18+ контент и жестокие сцены по умолчанию блокируются с объяснением причины; режим может менять администрация. Если запрос заблокирован, программа покажет, на каком слове сработала защита и что поправить.</p></details>
+    <details><summary>Пропал интернет посреди установки</summary>
+      <p>Ничего не потеряно. Запустите <code>Install Codwe AI.bat</code> снова: докачка продолжится с того же места.</p></details>
+    <details><summary>Не приходит письмо с кодом</summary>
+      <p>Проверьте папку «Спам», подождите минуту и нажмите «Отправить код ещё раз». Если не помогло, напишите тому, кто дал вам программу.</p></details>
+  </section>
+
+  <footer>
+    <div>Codwe AI · © 2026 Cowde · лицензия MIT на программу. У моделей ИИ свои лицензии, некоммерческие модели нельзя использовать в коммерческих целях.</div>
+    <div style="margin-top:8px"><a href="https://github.com/qusderlol-glitch/codwe-ai">Исходный код на GitHub</a></div>
+  </footer>
+</div>
+</body>
+</html>

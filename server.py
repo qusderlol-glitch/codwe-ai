@@ -40,7 +40,11 @@ import safety  # noqa: E402  (безопасные лимиты, зашифро�
 import workspace_api  # noqa: E402  (рабочая папка и терминал для вкладки «Код»)
 import auth_api  # noqa: E402  (вход по почте, роли, баны, условия, целостность)
 import codwecode_api  # noqa: E402  (агент codwecode: снимки экрана, зрение, поиск)
+import devlog  # noqa: E402  (живая лента событий для DEV-консоли; без текстов запросов)
+import dev_api  # noqa: E402  (DEV-консоль: команды и лента)
 import engine  # noqa: E402  (effort, режим «фото с камеры», выбор лучшей попытки)
+
+safety.set_provider(auth_api.soft_safety)  # режим безопасности 18+/gore общий для всех и задаётся из облака
 
 PORT = int(os.environ.get("CODWE_PORT", "8765"))
 OUT = HOME / "outputs"
@@ -234,6 +238,8 @@ def guard_image(img, what=""):
 
 
 def free_pipe():
+    if S.pipe is not None:
+        devlog.log("info", "Модель выгружена из видеопамяти")
     if S.pipe is not None and hasattr(S.pipe, "unload"):
         try:
             S.pipe.unload()
@@ -267,8 +273,56 @@ def gpu_info():
     return v
 
 
+# ───────────────────────── блокировка моделей (общая, её задают ранги с правом models.manage) ─────────────────────────
+def mblocked(mid):
+    return auth_api.model_blocked(mid)
+
+
+def model_catalog():
+    """Все модели программы с номерами вида image:real, chat:qwen3.5:9b и признаком блокировки."""
+    items = []
+    for k, v in IMAGE_MODELS.items():
+        items.append(dict(id=f"image:{k}", title=v["title"], kind="image", ready=model_ready(k)))
+    items.append(dict(id="edit:klein", title="Редактор · FLUX.2 klein", kind="edit", ready=_klein_ready()))
+    items.append(dict(id="video:svd", title="Видео · Stable Video Diffusion", kind="video", ready=repo_ready(VIDEO_REPO)))
+    for k, v in LIVE_MODELS.items():
+        items.append(dict(id=f"live:{k}", title="Live · " + v["title"], kind="live", ready=repo_ready(v["repo"])))
+    for m in ollama_models():
+        items.append(dict(id=f"chat:{m}", title="Чат · " + m, kind="chat", ready=True))
+    have = {i["id"] for i in items}
+    for mid in auth_api.policy()["blocked_models"]:  # заблокированные, которых сейчас нет в списке: их можно разблокировать
+        if mid not in have:
+            items.append(dict(id=mid, title=mid, kind=mid.split(":")[0], ready=False))
+    for i in items:
+        i["blocked"] = mblocked(i["id"])
+    return items
+
+
+def block_check(mid, title=""):
+    """Для запросов к API: заблокированная модель -> понятная ошибка 403."""
+    if mblocked(mid):
+        raise HTTPException(403, f"🔒 Модель «{title or mid}» заблокирована администрацией.")
+
+
+def check_model(mid, title=""):
+    """Для фоновых задач: то же самое, но как остановка задачи."""
+    if mblocked(mid):
+        raise Blocked(f"🔒 Модель «{title or mid}» заблокирована администрацией.", {})
+
+
+def pick_image_key(want_anime, explicit=None):
+    """Выбор модели картинок с учётом блокировок: явный выбор проверяется, «авто» обходит заблокированные."""
+    if explicit and explicit != "auto":
+        check_model(f"image:{explicit}", IMAGE_MODELS[explicit]["title"])
+        return explicit
+    for k in (["anime", "real"] if want_anime else ["real", "anime"]):
+        if k in IMAGE_MODELS and not mblocked(f"image:{k}"):
+            return k
+    raise Blocked("🔒 Все модели картинок заблокированы администрацией.", {})
+
+
 def pick_translate_model():
-    ms = ollama_models()
+    ms = [m for m in ollama_models() if not mblocked("chat:" + m)]
     if S.chat_model in ms:
         return S.chat_model
     for m in ms:
@@ -531,6 +585,8 @@ def resolve_request(job, key, prompt, negative, enhance, translate, styles, mode
 def _resolve_request(job, key, prompt, negative, enhance, translate, styles, mode, p0, camera=None):
     """-> (ключ модели, английский промпт, negative). Для key='auto' выбирает модель сам."""
     styles = [s for s in (styles or []) if str(s).strip()]
+    if key != "auto":
+        pick_image_key(False, key)  # явно выбранная модель не должна быть заблокирована
     if enhance:
         set_stage(job, "ИИ-помощник пишет идеальный промпт…", p0)
         forced = None
@@ -538,11 +594,11 @@ def _resolve_request(job, key, prompt, negative, enhance, translate, styles, mod
             forced = "anime" if IMAGE_MODELS[key]["kind"] == "anime" else "photo"
         r = enhance_prompt(prompt, mode, forced, styles, camera)
         if key == "auto":
-            key = "anime" if r["style"] == "anime" else "real"
+            key = pick_image_key(r["style"] == "anime")
         job["notes"], job["motion"] = r["notes"], r["motion"]
         return key, r["prompt"], merge_negative(negative, r["negative"])
     if key == "auto":
-        key = "anime" if STYLE_WORDS.search(prompt) else "real"
+        key = pick_image_key(bool(STYLE_WORDS.search(prompt)))
     prompt_en = prompt
     if translate and CYR.search(prompt):
         set_stage(job, "Перевожу описание на английский…", p0)
@@ -751,7 +807,7 @@ Answer with ONE JSON object and nothing else:
 
 
 def pick_vision_model():
-    ms = ollama_models()
+    ms = [m for m in ollama_models() if not mblocked("chat:" + m)]
     for m in ms:
         if m.lower().startswith("qwen3.5"):
             return m
@@ -848,6 +904,7 @@ def cover_crop(img, w, h):
 def do_video(job):
     import torch
     from diffusers.utils import export_to_video
+    check_model("video:svd", "Видео · Stable Video Diffusion")
     p = job["params"]
     fmt = p["format"] if p["format"] != "auto" else "landscape"
     prompt_for_meta = ""
@@ -1045,6 +1102,7 @@ def do_edit(job):
     base = []
 
     if method == "instruct":
+        check_model("edit:klein", "Редактор · FLUX.2 klein")
         kl = activate_klein(job)
         set_stage(job, "Кодирую команду…", 0.1)
         emb = kl.encode(plan["instruction"])
@@ -1064,7 +1122,7 @@ def do_edit(job):
             out = kl.edit(img, emb, steps, seed + i, cb)
             base.append((out, seed + i, 0))
     else:
-        key = p["model"] if p["model"] != "auto" else ("anime" if plan["style"] == "anime" else "real")
+        key = pick_image_key(plan["style"] == "anime", p["model"])
         cfgm = IMAGE_MODELS[key]
         use_zi = cfgm.get("engine") == "zimage"
         if use_zi:
@@ -1180,6 +1238,8 @@ def _live_load_worker(model):
 def run_job(job):
     job["status"] = "running"
     job["started"] = time.time()
+    _pp = job.get("params") or {}
+    devlog.log("job", f"Задача {job['id']} ({job['kind']}) началась · модель: {_pp.get('model') or _pp.get('image_model') or 'авто'}")
     with S.lock:
         S.gpu_busy = True
         try:
@@ -1205,6 +1265,9 @@ def run_job(job):
                     pass
         finally:
             job["finished"] = time.time()
+            devlog.log("block" if job.get("blocked") else ("err" if job["status"] == "error" else "job"),
+                       f"Задача {job['id']} ({job['kind']}): {job['status']} за {job['finished'] - job['started']:.0f} с"
+                       + (f" · остановлено: {(job.get('blocked_info') or {}).get('label') or job.get('error')}" if job.get("blocked") else ""))
             S.last_gpu = time.time()
             S.gpu_busy = False
             if "torch" in sys.modules:
@@ -1275,6 +1338,7 @@ ALLOWED_ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
+    t_req = time.time()
     if (request.headers.get("host") or "").lower() not in ALLOWED_HOSTS:
         return PlainTextResponse("forbidden", status_code=403)
     origin = request.headers.get("origin")
@@ -1290,6 +1354,10 @@ async def guard(request: Request, call_next):
             return JSONResponse({"detail": g[1], "code": g[0]}, status_code=g[2])
     resp = await call_next(request)
     path = request.url.path
+    _key = f"{request.method} {path}"
+    if path.startswith("/api/") and not devlog.QUIET.search(_key):
+        _d = devlog.describe(request.method, path)
+        devlog.log("api", f"{request.method} {path} → {resp.status_code} · {round((time.time() - t_req) * 1000)} мс" + (f" — {_d}" if _d else ""))
     if path == "/" or path.startswith("/static") or path.startswith("/api"):
         resp.headers["Cache-Control"] = "no-store"
     if path.startswith("/wsfiles"):  # страницы из рабочей папки открываются в «песочнице» без доступа к приложению
@@ -1304,7 +1372,8 @@ def status_payload():
     return {"on": S.on, "stopping": S.stopping, "warming": S.warming, "gpu_busy": S.gpu_busy,
             "ollama": ollama_up(), "loaded": ollama_loaded() if S.on else [], "gpu": gpu_info(),
             "chat_model": S.chat_model, "jobs": busy,
-            "safety": {"enabled": safety.enabled(), "tampered": safety.TAMPERED}}
+            "safety": {"enabled": safety.enabled(), "tampered": safety.TAMPERED},
+            "policy": auth_api.policy()}
 
 
 @app.get("/api/status")
@@ -1349,6 +1418,7 @@ def _power_off_worker():
 def api_power(req: PowerReq):
     if S.stopping:
         raise HTTPException(409, "ИИ ещё выключается, подождите несколько секунд.")
+    devlog.log("info", "ИИ " + ("включается" if req.on else "выключается"))
     if req.on and not S.on:
         S.on, S.warming = True, True
         threading.Thread(target=_power_on_worker, daemon=True).start()
@@ -1361,17 +1431,24 @@ def api_power(req: PowerReq):
 @app.get("/api/models")
 def api_models():
     return {
-        "chat": ollama_models(), "default_chat": DEFAULT_CHAT_MODEL,
+        "chat": [m for m in ollama_models() if not mblocked("chat:" + m)], "default_chat": DEFAULT_CHAT_MODEL,
+        "blocked": auth_api.policy()["blocked_models"],
         "image": {k: dict(key=k, title=v["title"], desc=v["desc"], kind=v["kind"], steps=v["steps"],
                           steps_max=v["steps_max"], cfg=v["cfg"], uses_negative=v["uses_negative"],
                           negative=v["negative"], sizes=v["sizes"], ready=model_ready(k))
-                  for k, v in IMAGE_MODELS.items()},
+                  for k, v in IMAGE_MODELS.items() if not mblocked(f"image:{k}")},
         "effort": [engine.effort_params(engine.level_to_pct(i)) for i in range(10)],
         "cameras": {k: v["title"] for k, v in engine.CAMERAS.items()},
         "speed": {"zimage_sec_per_step": 4.6},
-        "video": {"ready": repo_ready(VIDEO_REPO), "formats": VIDEO_FORMATS},
-        "edit": {"ready": _klein_ready()},
+        "video": {"ready": repo_ready(VIDEO_REPO), "formats": VIDEO_FORMATS, "blocked": mblocked("video:svd")},
+        "edit": {"ready": _klein_ready(), "blocked": mblocked("edit:klein")},
+        "live": {"blocked": [k for k in LIVE_MODELS if mblocked(f"live:{k}")]},
     }
+
+
+@app.get("/api/models/catalog")
+def api_models_catalog():
+    return {"models": model_catalog()}
 
 
 class Msg(BaseModel):
@@ -1401,6 +1478,7 @@ class ChatReq(BaseModel):
 
 @app.post("/api/chat")
 def api_chat(req: ChatReq):
+    block_check("chat:" + req.model, req.model)
     if not S.on:
         raise HTTPException(409, "ИИ выключен. Включите его переключателем ИИ.")
     if S.stopping:
@@ -1409,6 +1487,7 @@ def api_chat(req: ChatReq):
         raise HTTPException(423, "Видеокарта занята генерацией картинки/видео. Дождитесь окончания.")
     if not ensure_ollama():
         raise HTTPException(503, "Ollama не запускается. Установите Ollama (ollama.com).")
+    devlog.log("info", f"Чат: запрос к модели {req.model} (сообщений: {len(req.messages)})")
     last_user = next((m.content for m in reversed(req.messages) if m.role == "user"), "")
     okc, catc, msgc = safety.check_text(last_user, only_hard=True)
     if not okc:
@@ -1481,6 +1560,10 @@ def api_image(req: ImageReq):
     guard_api(req.prompt, *req.styles)
     if req.model != "auto" and req.model not in IMAGE_MODELS:
         raise HTTPException(400, "Неизвестная модель.")
+    if req.model != "auto":
+        block_check(f"image:{req.model}", IMAGE_MODELS[req.model]["title"])
+    elif all(mblocked(f"image:{k}") for k in IMAGE_MODELS):
+        raise HTTPException(403, "🔒 Все модели картинок заблокированы администрацией.")
     p = req.model_dump()
     p["styles"] = _styles(req.styles)
     if req.width and req.height:
@@ -1513,6 +1596,7 @@ class VideoReq(BaseModel):
 @app.post("/api/video")
 def api_video(req: VideoReq):
     guard_api(req.prompt, req.wish, *req.styles)
+    block_check("video:svd", "Видео · Stable Video Diffusion")
     if req.source == "file":
         resolve_source(req.file)
     else:
@@ -1562,6 +1646,10 @@ class EditReq(BaseModel):
 @app.post("/api/edit")
 def api_edit(req: EditReq):
     guard_api(req.request)
+    if req.mode == "instruct":
+        block_check("edit:klein", "Редактор · FLUX.2 klein")
+    if req.model in IMAGE_MODELS:
+        block_check(f"image:{req.model}", IMAGE_MODELS[req.model]["title"])
     try:
         resolve_source(req.file)
     except RuntimeError as e:
@@ -1615,6 +1703,7 @@ def api_live_status():
 def api_live_start(req: LiveStartReq):
     if req.model not in LIVE_MODELS:
         raise HTTPException(400, "Неизвестная модель.")
+    block_check(f"live:{req.model}", "Live · " + LIVE_MODELS[req.model]["title"])
     if not S.on:
         raise HTTPException(409, "ИИ выключен. Включите его переключателем ИИ.")
     if S.stopping:
@@ -1641,6 +1730,7 @@ class LiveReq(BaseModel):
 def api_live(req: LiveReq):
     import io
     guard_api(req.prompt, req.style)
+    block_check(f"live:{req.model}", "Live")
     if not S.on:
         raise HTTPException(409, "ИИ выключен.")
     if S.pipe_key != ("live", req.model):
@@ -1710,8 +1800,8 @@ def api_safety():
 
 @app.post("/api/safety")
 def api_safety_set(req: SafetyReq):
-    if not req.enabled:
-        raise HTTPException(403, "Безопасные лимиты нельзя отключить.")
+    if req.enabled != safety.enabled():
+        raise HTTPException(403, "Режим безопасности меняется в админ-панели (вкладка «Безопасность») рангом с правом safety.toggle.")
     return safety.status()
 
 
@@ -1764,6 +1854,8 @@ def api_enhance(req: EnhanceReq):
         raise HTTPException(423, "Видеокарта занята генерацией. Дождитесь окончания.")
     if req.model != "auto" and req.model not in IMAGE_MODELS:
         raise HTTPException(400, "Неизвестная модель.")
+    if req.model != "auto":
+        block_check(f"image:{req.model}", IMAGE_MODELS[req.model]["title"])
     if not ensure_ollama():
         raise HTTPException(503, "Ollama не запускается.")
     forced = None
@@ -1866,6 +1958,9 @@ def api_shutdown():
 
 app.include_router(auth_api.router)
 app.include_router(auth_api.admin_router)
+dev_api.bind(catalog=model_catalog, status=status_payload,
+             jobs=lambda: [public_job(j) for j in sorted(JOBS.values(), key=lambda j: j["created"])[-15:]])
+app.include_router(dev_api.router)
 app.include_router(workspace_api.router)
 codwecode_api.bind(S=S, OLLAMA=OLLAMA, KEEP=KEEP, ensure_ollama=ensure_ollama, pick_vision_model=pick_vision_model,
                    no_think=no_think)

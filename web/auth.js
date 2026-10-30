@@ -130,7 +130,7 @@
       fill.style.width = Math.min(100, (1 - left / need) * 100) + "%";
       scrolled = scrolled || box.scrollTop + box.clientHeight >= box.scrollHeight - 6;
       next.disabled = !(left <= 0 && scrolled);
-      next.textContent = left > 0 ? `Осталось ${Math.ceil(left)} с…` : scrolled ? "Я прочитал(а) — ответить на 3 вопроса" : "Прокрутите условия до конца";
+      next.textContent = left > 0 ? `Осталось ${Math.ceil(left)} с…` : scrolled ? `Я прочитал(а) — ответить на ${t.quiz.length} вопроса` : "Прокрутите условия до конца";
     };
     box.onscroll = upd; clearInterval(timer); timer = setInterval(upd, 250); upd();
     next.onclick = () => {
@@ -148,51 +148,6 @@
         catch (e) { if (e.message.startsWith("restart:")) tosScreen(e.message.slice(8)); else { show(`<div class="auth-card"><p class="au-err">${esc(e.message)}</p><button class="btn" onclick="location.reload()">Назад</button></div>`); } }
       };
     };
-  }
-
-  // ─────── админ-панель ───────
-  async function adminPanel() {
-    const wrap = document.createElement("div");
-    wrap.className = "auth-layer admin-layer"; wrap.innerHTML = `<div class="admin-card"><div class="ad-head"><h2>Пользователи</h2><button class="btn" id="adClose">Закрыть</button></div><div id="adBody" class="ad-body">Загрузка…</div></div>`;
-    document.body.appendChild(wrap);
-    wrap.querySelector("#adClose").onclick = () => wrap.remove();
-    const load = async () => {
-      const body = wrap.querySelector("#adBody");
-      try {
-        const d = await call("/api/admin/users");
-        body.innerHTML = `<div class="ad-pw"><b>Пароль доступа</b>
-          <span class="au-fine">Задайте один пароль для всех (минимум 8 знаков, лучше длинный и со знаками). Все, кроме админов, должны будут ввести его заново. Он хранится в облаке только в виде хеша.</span>
-          <div class="ad-pw-row"><input id="adPw" type="password" autocomplete="new-password" class="au-in" placeholder="Новый пароль доступа"><button class="btn primary" id="adPwSet">Задать</button><button class="btn" id="adPwClear">Снять пароль</button></div>
-          <span class="au-fine">Новым пользователям нужен ещё <b>код подключения</b> (его просит программа при первом запуске).</span><div><button class="btn" id="adCode">Скопировать код подключения</button></div></div>
-          <table class="ad-tbl"><thead><tr><th>Почта</th><th>Роль</th><th>Статус</th><th>Создан</th><th>Был</th><th></th></tr></thead><tbody>`
-          + d.users.map((u) => `<tr><td>${esc(u.email)}${u.id === d.me ? " <i>(вы)</i>" : ""}</td><td>${u.role === "admin" ? "админ" : "пользователь"}</td>
-            <td>${u.banned ? `<span class="bad">бан${u.ban_reason ? ": " + esc(u.ban_reason) : ""}</span>` : u.tos_version ? "ок" : "не принял условия"}</td>
-            <td>${esc((u.created_at || "").slice(0, 10))}</td><td>${esc((u.last_seen || "").slice(0, 16).replace("T", " "))}</td>
-            <td>${u.id === d.me ? "" : `<button class="btn small" data-ban="${u.id}" data-to="${!u.banned}">${u.banned ? "Разбанить" : "Забанить"}</button>
-              <button class="btn small" data-role="${u.id}" data-to="${u.role === "admin" ? "user" : "admin"}">${u.role === "admin" ? "Снять админа" : "Сделать админом"}</button>`}</td></tr>`).join("")
-          + `</tbody></table><p class="au-fine">Всего: ${d.users.length}. Права проверяет база данных, а не эта страница.</p>`;
-      } catch (e) { body.innerHTML = `<p class="au-err">${esc(e.message)}</p>`; }
-    };
-    wrap.onclick = async (e) => {
-      const id = e.target.id;
-      if (id === "adPwSet") {
-        const v = wrap.querySelector("#adPw").value;
-        try { await call("/api/admin/access-password", "POST", { password: v }); wrap.querySelector("#adPw").value = ""; alert("Пароль доступа задан. Все, кроме админов, введут его при следующем входе."); } catch (err) { alert(err.message); }
-        return;
-      }
-      if (id === "adCode") { try { const d = await call("/api/admin/connect-code"); await navigator.clipboard.writeText(d.code); alert("Код подключения скопирован. Отправьте его пользователю вместе с паролем доступа."); } catch (err) { alert(err.message); } return; }
-      if (id === "adPwClear") { if (!confirm("Снять пароль доступа? Войти смогут все с аккаунтом.")) return; try { await call("/api/admin/access-clear", "POST", {}); alert("Пароль доступа снят."); } catch (err) { alert(err.message); } return; }
-      const b = e.target.closest("button[data-ban], button[data-role]"); if (!b) return;
-      try {
-        if (b.dataset.ban) {
-          const to = b.dataset.to === "true"; let reason = "";
-          if (to) { reason = prompt("Причина блокировки (увидит пользователь):", "нарушение правил") ; if (reason === null) return; }
-          await call("/api/admin/ban", "POST", { id: b.dataset.ban, banned: to, reason });
-        } else await call("/api/admin/role", "POST", { id: b.dataset.role, role: b.dataset.to });
-        load();
-      } catch (err) { alert(err.message); }
-    };
-    load();
   }
 
   function adminButton() { const old = document.getElementById("adminBtn"); if (old) old.remove(); }
@@ -216,6 +171,7 @@
       st = await call("/api/auth/state");
       const key = [st.tampered, st.needs_connect, st.banned, st.logged_in, st.access_ok, st.tos_ok, st.email].join("|");
       adminButton();
+      if (window.codweDevAllow) window.codweDevAllow(st.logged_in && st.access_ok && st.tos_ok && !st.tampered && !st.banned && (st.perms || []).includes("dev.console"));
       if (window.codweAuth && window.codweAuth.onState) window.codweAuth.onState(st);
       if (st.tampered) { if (key !== lastKey) lockScreen(st.tamper_reason); }
       else if (st.needs_connect) { if (key !== lastKey) connectScreen(); }
@@ -228,7 +184,7 @@
     } catch { /* сервер перезапускается */ }
     busy = false;
   }
-  window.codweAuth = { refresh, state: () => st, admin: adminPanel, call, esc };
+  window.codweAuth = { refresh, state: () => st, admin: () => window.codweAdmin && window.codweAdmin.open(), call, esc };
   takeLinkSession().then(refresh);
   setInterval(refresh, 20000);
 })();

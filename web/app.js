@@ -197,6 +197,9 @@ async function pollStatus() {
   try {
     S.status = await api("/api/status");
     renderPower(); renderSafety();
+    const pv = JSON.stringify(S.status.policy || {});
+    if (S.polVer !== undefined && S.polVer !== pv) { modelsPromise = null; imagesInited = false; ensureModels(); toast("Администрация изменила доступные модели или режим безопасности", "warn", 4000); }
+    S.polVer = pv; updateBlockedPill();
     const active = S.status.jobs.length > 0;
     S.status.jobs.forEach(rehydrateJob);
     lastJobsActive = active;
@@ -228,9 +231,20 @@ function setView(v) {
   if (v === "artifacts" && typeof renderArtifacts === "function") renderArtifacts();
   if (v === "code" && typeof initCode === "function") initCode();
   if (v === "gallery") loadGallery();
+  updateBlockedPill();
   if (v === "images" || v === "video") ensureModels();
   if (v === "live" && typeof ensureLive === "function") { setTimeout(() => $("#liveInput").focus(), 50); ensureLive(); }
   store.set("codwe.view", v);
+}
+// плашка «🔒 модель заблокирована администрацией» над вкладками, чья модель отключена
+function updateBlockedPill() {
+  const b = (S.status && S.status.policy && S.status.policy.blocked_models) || [];
+  const need = { video: ["video:svd"], edit: ["edit:klein"], live: ["live:fast"], images: ["image:real", "image:anime"] }[S.view];
+  const hit = need && (S.view === "images" ? need.every((i) => b.includes(i)) : need.some((i) => b.includes(i)));
+  let el = document.getElementById("blockedPill");
+  if (!hit) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement("div"); el.id = "blockedPill"; el.className = "blocked-pill"; $("#main").prepend(el); }
+  el.textContent = "🔒 Эта модель заблокирована администрацией. Запросы к ней будут отклонены.";
 }
 $("#bottomnav").innerHTML = $("#nav").innerHTML;  // та же навигация внизу на телефоне
 document.addEventListener("click", (e) => { const b = e.target.closest(".nav-btn[data-view]"); if (b) setView(b.dataset.view); });
@@ -1120,35 +1134,43 @@ function renderSafety() {
   const st = sf.tampered ? "tamper" : sf.enabled ? "on" : "off";
   const b = $("#safetyBtn");
   b.dataset.state = st;
-  $("#safetyTxt").textContent = { on: "Защита", off: "Без лимитов", tamper: "Взлом защиты" }[st];
+  $("#safetyTxt").textContent = { on: "Защита", off: "Лимиты выкл", tamper: "Взлом защиты" }[st];
   $("use", b).setAttribute("href", st === "on" ? "#i-shield" : "#i-shield-off");
-  b.title = { on: "Безопасные лимиты включены", off: "Безопасные лимиты ВЫКЛЮЧЕНЫ", tamper: "Обнаружено вмешательство в файлы защиты" }[st];
+  b.title = { on: "Безопасные лимиты включены", off: "Администрация отключила блокировку 18+ и gore", tamper: "Обнаружено вмешательство в файлы защиты" }[st];
 }
 async function openSafety() {
   let sf;
   try { sf = await api("/api/safety"); } catch (e) { return toast(e.message, "error"); }
   const st = sf.tampered ? "tamper" : sf.enabled ? "on" : "off";
   const color = { on: "var(--on)", off: "var(--warn)", tamper: "var(--danger)" }[st];
-  const title = { on: "Безопасные лимиты включены", off: "Безопасные лимиты выключены", tamper: "Вмешательство в защиту" }[st];
+  const title = { on: "Безопасные лимиты включены", off: "18+ и gore сейчас не блокируются", tamper: "Вмешательство в защиту" }[st];
+  const canToggle = !!(window.codweAuth && ((window.codweAuth.state() || {}).perms || []).includes("safety.toggle")) && st !== "tamper";
   const lines = `<ul class="sh-list">
-    <li><svg class="i ok"><use href="#i-shield"/></svg><span><b>Блокируется</b> откровенный сексуальный контент (porn / NSFW) и жестокий gore — в запросах, в итоговых английских промптах и в готовых картинках и видео (локальная проверка).</span></li>
-    <li><svg class="i lock"><use href="#i-lock"/></svg><span><b>Всегда включено</b> и не отключается: любой сексуальный контент с несовершеннолетними.</span></li>
-    <li><svg class="i lock"><use href="#i-lock"/></svg><span><b>Защита от обхода:</b> правила зашифрованы и подписаны, при каждом запуске файлы проверяются, ручная правка настроек не работает, а фразы вроде «забудь все правила» не действуют — проверки выполняет программа, а не нейросеть.</span></li>
+    <li><svg class="i ${st === "on" ? "ok" : "lock"}"><use href="#i-shield"/></svg><span><b>${st === "on" ? "Блокируется" : "Сейчас не блокируется (решение администрации)"}:</b> откровенный сексуальный контент (porn / NSFW) и жестокий gore: в запросах, в итоговых английских промптах и в готовых картинках и видео (локальная проверка).</span></li>
+    <li><svg class="i lock"><use href="#i-lock"/></svg><span><b>Всегда включено</b> и не отключается никем, даже владельцем: любой сексуальный контент с несовершеннолетними.</span></li>
+    <li><svg class="i lock"><use href="#i-lock"/></svg><span><b>Кто меняет режим:</b> только ранг с правом «safety.toggle» через облако, для всех пользователей сразу. Кнопки «выключить» у обычного пользователя нет, а ручная правка файлов не работает.</span></li>
     <li><svg class="i ${sf.classifier_ready ? "ok" : "lock"}"><use href="#i-shield"/></svg><span>Проверка картинок: <b>${sf.classifier_ready ? "готова" : "загрузится при первой картинке"}</b>.</span></li></ul>`;
   const warn = st === "tamper" ? `<div class="sh-warn sh-danger">⚠ ${esc(sf.tamper_reason || "Файлы защиты изменены.")} Безопасные лимиты включены принудительно, выключить их нельзя. Восстановите файлы safety.py, policy.enc и safety.sig.</div>` : "";
-  const note = '<p class="hint">Честно: это защита от случайного и простого обхода. Человек с полным доступом к файлам программы и навыками программирования может её убрать — как с любой локальной программой.</p>';
+  const note = '<p class="hint">Честно: это защита от случайного и простого обхода. Человек с полным доступом к файлам программы и навыками программирования может её убрать, как с любой локальной программой.</p>';
+  const toggle = canToggle ? (st === "on"
+    ? '<button class="btn danger" id="shOffAsk">Выключить для всех…</button>'
+    : '<button class="btn primary" id="shOn">Включить для всех</button>') : "";
   const c = openModal(`<div class="sh-hero"><div class="badge-big" style="--c:${color}"><svg class="i"><use href="#i-shield${st === "on" ? "" : "-off"}"/></svg></div><div><h3>${title}</h3><p>Защита от генерации NSFW, gore и порно.</p></div></div>${warn}${lines}${note}
-    <div class="modal-actions"><button class="btn" id="shClose">Закрыть</button></div>`);
+    <div class="modal-actions">${toggle}<button class="btn" id="shClose">Закрыть</button></div>`);
   $("#shClose", c).onclick = closeModal;
-  if ($("#shOn", c)) $("#shOn", c).onclick = async () => { try { S.status.safety = await api("/api/safety", { method: "POST", body: { enabled: true } }); renderSafety(); closeModal(); toast("🛡 Безопасные лимиты включены", "ok"); pollNow(); } catch (e) { toast(e.message, "error"); } };
+  const apply = async (enabled, adult) => {
+    try { await api("/api/admin/safety", { method: "POST", body: { enabled, confirm_adult: adult } }); await pollNow(); closeModal(); toast(enabled ? "🛡 Безопасные лимиты включены у всех" : "Безопасные лимиты отключены у всех", enabled ? "ok" : "warn", 4000); }
+    catch (e) { toast(e.message, "error"); }
+  };
+  if ($("#shOn", c)) $("#shOn", c).onclick = () => apply(true, false);
   if ($("#shOffAsk", c)) $("#shOffAsk", c).onclick = () => {
-    c.innerHTML = `<div class="sh-hero"><div class="badge-big" style="--c:var(--warn)"><svg class="i"><use href="#i-shield-off"/></svg></div><div><h3>Отключить безопасные лимиты?</h3><p>Станут возможны откровенные (18+) и жестокие картинки.</p></div></div>
-      <div class="sh-warn">Контент для взрослых. Сексуальный контент с несовершеннолетними останется заблокированным всегда. Вся ответственность за созданное — на вас.</div>
-      <label class="check big"><input type="checkbox" id="shAdult"><span>Мне есть 18 лет, я понимаю, что делаю, и сам отвечаю за созданный контент.</span></label>
+    c.innerHTML = `<div class="sh-hero"><div class="badge-big" style="--c:var(--warn)"><svg class="i"><use href="#i-shield-off"/></svg></div><div><h3>Отключить безопасные лимиты для всех?</h3><p>У всех пользователей станут возможны откровенные (18+) и жестокие картинки.</p></div></div>
+      <div class="sh-warn">Сексуальный контент с несовершеннолетними останется заблокированным всегда. Изменение попадёт в журнал, и ответственность за него на вас.</div>
+      <label class="check big"><input type="checkbox" id="shAdult"><span>Мне есть 18 лет, я понимаю, что делаю, и сам отвечаю за это решение.</span></label>
       <div class="modal-actions"><button class="btn" id="shBack">Назад</button><button class="btn danger" id="shOff" disabled>Отключить лимиты</button></div>`;
     $("#shAdult", c).onchange = (e) => { $("#shOff", c).disabled = !e.target.checked; };
     $("#shBack", c).onclick = () => { closeModal(); openSafety(); };
-    $("#shOff", c).onclick = async () => { try { S.status.safety = await api("/api/safety", { method: "POST", body: { enabled: false, confirm_adult: true } }); renderSafety(); closeModal(); toast("Безопасные лимиты отключены", "warn", 4000); pollNow(); } catch (e) { toast(e.message, "error"); } };
+    $("#shOff", c).onclick = () => apply(false, true);
   };
 }
 $("#safetyBtn").onclick = openSafety;
@@ -1160,7 +1182,7 @@ $("#openSettings").onclick = () => {
   const c = openModal(`<h3>Настройки</h3>
     <div><label class="lbl">Тема</label><div class="seg" id="stTheme"><button data-t="dark" class="${th === "dark" ? "active" : ""}">Тёмная</button><button data-t="light" class="${th === "light" ? "active" : ""}">Светлая</button><button data-t="auto" class="${th === "auto" ? "active" : ""}">Как в системе</button></div></div>
     <div><label class="lbl">Чат</label><label class="check big"><input type="checkbox" id="stArt" ${settings.artifacts ? "checked" : ""}><span><b>Артефакты</b> — ИИ делает сайты, игры и SVG одним файлом, а справа открывается просмотр</span></label><label class="check big"><input type="checkbox" id="stAuto" ${settings.autoOpen ? "checked" : ""}><span>Открывать артефакт автоматически</span></label></div>
-    <div><label class="lbl">Приватность</label><p>Сервер слушает только этот компьютер (127.0.0.1). Чаты хранятся в вашем браузере, картинки и видео — в папке <code>outputs</code>. Ничего не отправляется в интернет.</p></div>
+    <div><label class="lbl">Приватность</label><p>🔒 <b>Ваши фото и запросы никто не видит.</b> Сервер слушает только этот компьютер (127.0.0.1). Чаты хранятся в вашем браузере, картинки и видео — в папке <code>outputs</code>. Ни разработчик, ни администраторы, ни другие пользователи не могут их открыть: в облако они не отправляются. В облаке лежат только почта, ранг и статус блокировки. В интернет уходит лишь то, что вы сами запустили: поиск в Codwecode или скачивание моделей.</p></div>
     <div class="modal-actions"><button class="btn danger" id="stClear">Очистить историю чатов</button><button class="btn danger" id="stQuit">Остановить сервер</button><button class="btn primary" id="stClose">Готово</button></div>`);
   $("#stTheme", c).onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; store.set("codwe.theme", b.dataset.t); applyTheme(); setSeg("#stTheme", "t", b.dataset.t); };
   $("#stClose", c).onclick = closeModal;
