@@ -1,0 +1,9 @@
+<!-- Вставьте в Supabase -> Authentication -> Email Templates: и в «Confirm signup», и в «Magic Link».
+     Тема письма: Codwe AI — ваш код входа -->
+<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#111">
+  <h2 style="margin:0 0 8px">Codwe AI</h2>
+  <p style="margin:0 0 16px">Ваш код входа:</p>
+  <p style="font-size:34px;letter-spacing:8px;font-weight:700;margin:0 0 20px;background:#f3f1ff;padding:14px;border-radius:10px;text-align:center">{{ .Token }}</p>
+  <p style="margin:0 0 20px">Введите его в приложении Codwe AI. Код действует недолго. Если вы его не запрашивали, просто проигнорируйте письмо.</p>
+  <a href="{{ .SiteURL }}" style="display:inline-block;background:#7c5cff;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700">Открыть Codwe AI</a>
+</div>

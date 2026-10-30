@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Установка Codwe AI</title>
+<style>
+:root { --bg:#0e0e17; --card:#171726; --card2:#1f1f33; --line:#2e2e48; --text:#f2f2fa; --muted:#a6a6c0; --accent:#8b6cff; --accent2:#38bdf8; --ok:#3ddc97; --warn:#ffb347; --bad:#ff6b6b; }
+* { box-sizing: border-box; }
+body { margin:0; background:radial-gradient(1200px 600px at 10% -10%, #2a1f5a55, transparent), var(--bg); color:var(--text); font:17px/1.55 "Segoe UI", system-ui, sans-serif; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 22px 18px 140px; }
+header { display:flex; align-items:center; gap:14px; margin-bottom: 8px; }
+header img { width:48px; height:48px; border-radius:12px; }
+header h1 { margin:0; font-size:26px; }
+.steps { display:flex; gap:8px; margin: 14px 0 22px; flex-wrap:wrap; }
+.steps span { padding:6px 14px; border-radius:99px; background:var(--card); color:var(--muted); font-size:14px; border:1px solid var(--line); }
+.steps span.on { background:var(--accent); color:#fff; border-color:transparent; font-weight:600; }
+.steps span.done { color:var(--ok); }
+h2 { font-size:30px; margin:6px 0 10px; } h3 { margin:0 0 4px; font-size:19px; }
+p { margin:6px 0; } .muted { color:var(--muted); } .small { font-size:14px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px 20px; margin:12px 0; }
+.big { font-size:19px; }
+button { font:inherit; cursor:pointer; border-radius:14px; border:1px solid var(--line); background:var(--card2); color:var(--text); padding:12px 22px; }
+button:hover:not(:disabled) { border-color:var(--accent); }
+button.primary { background:linear-gradient(135deg, var(--accent), var(--accent2)); border:0; color:#fff; font-weight:700; font-size:19px; padding:14px 30px; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+.row { display:flex; gap:14px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--line); } .row:last-child { border:0; }
+.ico { font-size:26px; width:34px; flex:none; text-align:center; }
+.lvl-ok .t { color:var(--ok); } .lvl-warn .t { color:var(--warn); } .lvl-bad .t { color:var(--bad); }
+.fix { margin-top:4px; padding:8px 12px; border-radius:10px; background:#00000033; border-left:4px solid var(--warn); font-size:15px; }
+.lvl-bad .fix { border-color:var(--bad); }
+.banner { padding:16px 18px; border-radius:16px; margin:12px 0; font-size:18px; }
+.banner.bad { background:#3a1620; border:1px solid var(--bad); } .banner.warn { background:#3a2a12; border:1px solid var(--warn); } .banner.ok { background:#10301f; border:1px solid var(--ok); }
+.presets { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; } @media (max-width:700px) { .presets { grid-template-columns:1fr; } }
+.preset { text-align:left; padding:14px 16px; } .preset b { display:block; font-size:18px; } .preset.on { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+.comp { display:flex; gap:14px; align-items:flex-start; }
+.comp input[type=checkbox] { width:26px; height:26px; margin-top:4px; accent-color:var(--accent); flex:none; }
+.comp .meta { flex:1; } .tag { display:inline-block; font-size:13px; padding:2px 10px; border-radius:99px; margin:2px 6px 2px 0; background:var(--card2); border:1px solid var(--line); }
+.tag.ok { color:var(--ok); border-color:var(--ok); } .tag.warn { color:var(--warn); border-color:var(--warn); } .tag.bad { color:var(--bad); border-color:var(--bad); } .tag.rec { color:#fff; background:var(--accent); border:0; }
+.size { font-size:20px; font-weight:700; white-space:nowrap; }
+details summary { cursor:pointer; color:var(--accent2); font-size:15px; margin-top:6px; }
+.bar { height:12px; border-radius:99px; background:#00000055; overflow:hidden; } .bar i { display:block; height:100%; width:0; background:linear-gradient(90deg, var(--accent), var(--accent2)); transition:width .4s; }
+.bar.red i { background:var(--bad); }
+.dock { position:fixed; left:0; right:0; bottom:0; background:#0b0b13ee; backdrop-filter:blur(10px); border-top:1px solid var(--line); padding:12px 18px; }
+.dock .in { max-width:860px; margin:0 auto; display:flex; gap:14px; align-items:center; flex-wrap:wrap; justify-content:space-between; }
+.step { display:flex; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); } .step:last-child { border:0; }
+.step .body { flex:1; } .step .nm { font-weight:600; } .step .nt { color:var(--muted); font-size:14px; word-break:break-all; }
+.logbox { background:#07070c; border-radius:12px; padding:10px 12px; font:13px/1.45 Consolas, monospace; max-height:220px; overflow:auto; white-space:pre-wrap; color:#b8b8d0; }
+label.chk { display:flex; gap:12px; align-items:flex-start; padding:10px 0; cursor:pointer; } label.chk input { width:24px; height:24px; accent-color:var(--accent); flex:none; margin-top:3px; }
+.center { text-align:center; } .hero { font-size:64px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><img src="/static/icon.png" alt="" onerror="this.remove()"><div><h1>Установка Codwe AI</h1><div class="muted small">Мастер всё сделает сам. Вам нужно только нажимать кнопки.</div></div></header>
+  <div class="steps" id="steps"></div>
+  <div id="view"></div>
+</div>
+<div class="dock" id="dock" hidden><div class="in" id="dockIn"></div></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function api(path, method = "GET", body) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json", "X-Codwe": "1" }, body: body ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch { /* */ }
+  if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : "Ошибка " + r.status);
+  return j;
+}
+const S = { page: 0, info: null, sel: new Set(), okBad: false, ack1: false, ack2: false, poll: null, progress: null, preset: "" };
+const STEPS = ["Старт", "Проверка", "Выбор", "Подтверждение", "Установка", "Готово"];
+const ICON = { ok: "✅", warn: "⚠️", bad: "❌" };
+const gb = (x) => (x >= 10 ? x.toFixed(0) : x.toFixed(1)) + " ГБ";
+
+function drawSteps() {
+  $("#steps").innerHTML = STEPS.map((t, i) => `<span class="${i === S.page ? "on" : i < S.page ? "done" : ""}">${i < S.page ? "✓ " : ""}${i + 1}. ${t}</span>`).join("");
+}
+function go(p) { S.page = p; drawSteps(); window.scrollTo(0, 0); render(); }
+function dock(html) { const d = $("#dock"); d.hidden = !html; $("#dockIn").innerHTML = html || ""; }
+
+// ───── 0. старт ─────
+function pageWelcome() {
+  dock(`<span class="muted">Это займёт от 30 минут до нескольких часов — зависит от интернета.</span><button class="primary" id="go">Начать →</button>`);
+  $("#view").innerHTML = `<h2>Добро пожаловать! 👋</h2>
+    <div class="card big"><p>Сейчас мы установим <b>Codwe AI</b> — умную программу для чата, картинок и кода. Она работает <b>на вашем компьютере</b>: ваши картинки и переписка никуда не отправляются.</p>
+    <p>Что будет дальше: <b>1)</b> мы проверим ваш компьютер, <b>2)</b> вы выберете, что установить, <b>3)</b> мы всё скачаем и настроим.</p></div>
+    <div class="card"><h3>Что вам понадобится</h3>
+      <p>🌐 <b>Интернет</b> — чтобы скачать модели (это много гигабайт).</p>
+      <p>💾 <b>Свободное место на диске</b> — от 15 до 50 ГБ, смотря что выберете.</p>
+      <p>🎮 <b>Видеокарта NVIDIA</b> (лучше с 8 ГБ памяти) — для картинок и видео. Без неё будет работать только чат, и медленно.</p>
+      <p>⏳ <b>Терпение</b> — в основном мы просто ждём, пока скачается. Окно можно свернуть.</p></div>
+    <div class="card"><p class="muted">Если что-то непонятно, под каждым пунктом есть пояснение простыми словами. Ничего не сломается: всё можно остановить и продолжить позже.</p></div>`;
+  $("#go").onclick = () => go(1);
+}
+
+// ───── 1. проверка ─────
+async function pageCheck() {
+  dock("");
+  $("#view").innerHTML = `<h2>Проверяем ваш компьютер…</h2><div class="card center"><div class="hero">🔍</div><p>Это займёт несколько секунд.</p></div>`;
+  try { S.info = await api("/api/check"); } catch (e) { $("#view").innerHTML = `<div class="banner bad">Не получилось проверить: ${esc(e.message)}</div>`; return; }
+  const bad = S.info.rows.filter((r) => r.level === "bad"), warn = S.info.rows.filter((r) => r.level === "warn");
+  const hasBad = bad.length > 0;
+  let ban = "";
+  if (hasBad) ban = `<div class="banner bad"><b>❌ Есть серьёзные проблемы (${bad.length}).</b><br>Программа может работать плохо или не работать вовсе. Прочитайте красные пункты ниже.</div>`;
+  else if (warn.length) ban = `<div class="banner warn"><b>⚠️ Всё в целом подходит, но есть предупреждения (${warn.length}).</b><br>Это не страшно — просто прочитайте жёлтые пункты.</div>`;
+  else ban = `<div class="banner ok"><b>✅ Отлично!</b> Ваш компьютер подходит для всего.</div>`;
+  const help = { driver: "driver", edge: "edge", python: "python" };
+  $("#view").innerHTML = `<h2>Проверка компьютера</h2>${ban}<div class="card">${S.info.rows.map((r) => `
+    <div class="row lvl-${r.level}"><div class="ico">${ICON[r.level]}</div><div><h3 class="t">${esc(r.title)}: <span style="color:var(--text)">${esc(r.value)}</span></h3>
+    <div>${esc(r.simple)}</div>${r.fix ? `<div class="fix">👉 Что делать: ${esc(r.fix)}${help[r.id] ? ` <button class="small" data-open="${help[r.id]}">Открыть страницу</button>` : ""}</div>` : ""}</div></div>`).join("")}</div>
+    ${hasBad ? `<div class="card"><label class="chk"><input type="checkbox" id="okBad" ${S.okBad ? "checked" : ""}><span><b>Я прочитал(а) красные пункты и всё равно хочу продолжить.</b><br><span class="muted small">Лучше сначала исправить проблему. Но если вам нужен только чат — можно продолжать.</span></span></label></div>` : ""}`;
+  dock(`<button id="re">Проверить заново</button><button class="primary" id="next">Далее →</button>`);
+  $("#re").onclick = pageCheck;
+  const nx = $("#next"); nx.disabled = hasBad && !S.okBad;
+  if ($("#okBad")) $("#okBad").onchange = (e) => { S.okBad = e.target.checked; nx.disabled = !S.okBad; };
+  nx.onclick = () => { if (!S.sel.size && !S.touched) applyPreset(null); go(2); };
+  document.querySelectorAll("[data-open]").forEach((b) => (b.onclick = () => api("/api/open", "POST", { id: b.dataset.open }).catch(() => {})));
+}
+
+// ───── 2. выбор ─────
+const byId = (id) => S.info.components.find((c) => c.id === id);
+function applyPreset(key) {
+  const rec = S.info.recommended;
+  S.sel = new Set(key ? S.info.presets[key].ids : rec);
+  S.preset = key || "auto"; S.touched = true;
+}
+function needsOf(id, acc = new Set()) { byId(id).needs.forEach((n) => { if (!acc.has(n)) { acc.add(n); needsOf(n, acc); } }); return acc; }
+function totalNeed() {
+  const all = new Set(S.info.components.filter((c) => c.required).map((c) => c.id));
+  S.sel.forEach((id) => { all.add(id); needsOf(id).forEach((n) => all.add(n)); });
+  let need = 0; all.forEach((id) => { const c = byId(id); if (!c.installed) need += c.size_gb; });
+  return { ids: [...all], need };
+}
+function pageChoose() {
+  const gpu = S.info.gpu, vram = gpu ? gpu.vram_gb : 0;
+  const rec = S.info.recommended;
+  const why = vram >= 7.5 ? `У вас видеокарта с ${vram} ГБ памяти — подойдут все функции. Мы выбрали то, что нужно большинству.`
+    : vram >= 5.5 ? `У вас видеокарты немного не хватает (${vram} ГБ). Мы выбрали только быстрый Live. Остальное может не заработать.`
+    : `Видеокарты NVIDIA нет или памяти мало. Мы выбрали только чат — картинки и видео не заработают.`;
+  const draw = () => {
+    const t = totalNeed(), free = S.info.free_gb, lack = t.need * 1.05 + 2 - free, bad = lack > 0;
+    const req = S.info.components.filter((c) => c.required), opt = S.info.components.filter((c) => !c.required);
+    const card = (c) => {
+      const locked = c.required, on = locked || S.sel.has(c.id) || (t.ids.includes(c.id) && !c.required);
+      const forced = !c.required && !S.sel.has(c.id) && t.ids.includes(c.id);
+      const tags = [c.required ? `<span class="tag">🔒 нужно всегда</span>` : "", c.installed ? `<span class="tag ok">✓ уже установлено</span>` : "",
+        S.info.recommended.includes(c.id) && !c.required ? `<span class="tag rec">рекомендуем</span>` : "",
+        !c.vram_ok ? `<span class="tag bad">нужна видеокарта ${c.vram_gb} ГБ — у вас может не заработать</span>` : "",
+        /НЕкоммерч/.test(c.license) ? `<span class="tag warn">⚠ только для личного пользования, не для заработка</span>` : ""].join("");
+      return `<div class="card"><div class="comp"><input type="checkbox" data-c="${c.id}" ${on ? "checked" : ""} ${locked || c.installed && false ? "disabled" : ""}>
+        <div class="meta"><h3>${esc(c.title)}</h3><div>${esc(c.simple)}</div><div>${tags}</div>
+        ${forced ? `<div class="fix">Мы включили эту часть сами: без неё другая выбранная часть не работает.</div>` : ""}
+        <details><summary>Подробнее</summary><p class="small muted">${esc(c.details)}</p><p class="small muted">Лицензия: ${esc(c.license || "—")}</p>
+          ${c.installed && !c.required ? `<button class="small" data-rm="${c.id}">🗑 Удалить и освободить место</button>` : ""}</details></div>
+        <div class="size">${c.installed ? "—" : gb(c.size_gb)}</div></div></div>`;
+    };
+    $("#view").innerHTML = `<h2>Что установить?</h2>
+      <div class="banner ok" style="font-size:16px">💡 ${esc(why)}</div>
+      <div class="presets">${Object.entries(S.info.presets).map(([k, p]) => `<button class="preset ${S.preset === k ? "on" : ""}" data-p="${k}"><b>${esc(p.title)}</b><span class="muted small">${esc(p.desc)}</span></button>`).join("")}</div>
+      <h3 style="margin-top:20px">Обязательное</h3>${req.map(card).join("")}
+      <h3 style="margin-top:20px">На ваш выбор</h3>${opt.map(card).join("")}`;
+    dock(`<div style="flex:1;min-width:240px"><div><b>Скачать: ${gb(t.need)}</b> · свободно на диске: ${gb(free)}</div>
+      <div class="bar ${bad ? "red" : ""}" style="margin-top:6px"><i style="width:${Math.min(100, (t.need / Math.max(free, 1)) * 100)}%"></i></div>
+      ${bad ? `<div style="color:var(--bad);font-size:15px;margin-top:4px">❌ Не хватает примерно ${gb(lack)}. Уберите галочки или освободите место на диске.</div>` : ""}</div>
+      <button id="back">← Назад</button><button class="primary" id="next" ${bad ? "disabled" : ""}>Далее →</button>`);
+    document.querySelectorAll("[data-c]").forEach((cb) => (cb.onchange = () => {
+      const id = cb.dataset.c; S.touched = true; S.preset = "";
+      if (cb.checked) S.sel.add(id); else {
+        S.sel.delete(id);
+        S.info.components.forEach((o) => { if (!o.required && needsOf(o.id).has(id)) S.sel.delete(o.id); }); // убрали «основу» — уходят зависимые
+      }
+      draw();
+    }));
+    document.querySelectorAll("[data-p]").forEach((b) => (b.onclick = () => { applyPreset(b.dataset.p); draw(); }));
+    document.querySelectorAll("[data-rm]").forEach((b) => (b.onclick = async () => {
+      const c = byId(b.dataset.rm);
+      if (!confirm(`Удалить «${c.title}»?\nМесто освободится, а функция перестанет работать, пока вы не установите её снова.`)) return;
+      try { const r = await api("/api/remove", "POST", { id: c.id }); alert(`Удалено. Освобождено примерно ${r.freed_gb} ГБ.`); S.info = await api("/api/check"); draw(); } catch (e) { alert(e.message); }
+    }));
+    $("#back").onclick = () => go(1); $("#next").onclick = () => go(3);
+  };
+  draw();
+}
+
+// ───── 3. подтверждение ─────
+function pageConfirm() {
+  const t = totalNeed();
+  const todo = t.ids.map(byId).filter((c) => !c.installed);
+  const nonc = todo.filter((c) => /НЕкоммерч/.test(c.license));
+  const hours = Math.max(0.3, t.need / 6); // грубо: ~6 ГБ в час при медленном интернете
+  $("#view").innerHTML = `<h2>Проверьте и подтвердите</h2>
+    <div class="card"><h3>Будет установлено (${todo.length})</h3>${todo.length ? todo.map((c) => `<div class="row"><div class="ico">📦</div><div style="flex:1"><b>${esc(c.title)}</b><div class="muted small">${esc(c.simple)}</div></div><div class="size">${gb(c.size_gb)}</div></div>`).join("") : `<p>Всё выбранное уже установлено. Мастер просто проверит и создаст ярлык.</p>`}
+      <p class="big" style="margin-top:12px"><b>Итого скачать: ${gb(t.need)}</b> · это займёт примерно от ${Math.max(10, Math.round(hours * 10))} минут до нескольких часов.</p></div>
+    <div class="card"><h3>Важно знать</h3>
+      <p>🔒 <b>Что мы НЕ делаем:</b> не отправляем ваши данные в интернет. Интернет нужен только чтобы скачать модели.</p>
+      <p>⏸ Установку можно <b>остановить в любой момент</b> и продолжить позже — скачанное сохраняется.</p>
+      <p>💡 Во время установки не выключайте компьютер и не давайте ему уходить в сон.</p>
+      <p>🖥 Устанавливается в папку: <span class="muted small">${esc(S.info.root)}</span></p></div>
+    ${nonc.length ? `<div class="banner warn"><b>⚠️ Лицензии.</b> Эти модели можно использовать только для себя, <b>не для заработка</b>: ${nonc.map((c) => esc(c.title)).join("; ")}.</div>` : ""}
+    <div class="card"><label class="chk"><input type="checkbox" id="a1" ${S.ack1 ? "checked" : ""}><span>Я понимаю, что скачивается много гигабайт, и согласен(на) на это.</span></label>
+      ${nonc.length ? `<label class="chk"><input type="checkbox" id="a2" ${S.ack2 ? "checked" : ""}><span>Я понимаю, что некоммерческие модели нельзя использовать для заработка.</span></label>` : ""}
+      <label class="chk"><input type="checkbox" id="a3" ${S.ack3 ? "checked" : ""}><span>Я понимаю, что мастер установит программу Ollama и скачает модели с сайтов Hugging Face и Ollama.</span></label></div>`;
+  const check = () => { $("#start").disabled = !($("#a1").checked && (!$("#a2") || $("#a2").checked) && $("#a3").checked); S.ack1 = $("#a1").checked; S.ack2 = $("#a2") ? $("#a2").checked : false; S.ack3 = $("#a3").checked; };
+  dock(`<button id="back">← Назад</button><button class="primary" id="start" disabled>Начать установку ▶</button>`);
+  ["#a1", "#a2", "#a3"].forEach((s) => $(s) && ($(s).onchange = check)); check();
+  $("#back").onclick = () => go(2);
+  $("#start").onclick = async () => {
+    try { await api("/api/start", "POST", { ids: [...S.sel] }); go(4); } catch (e) { alert(e.message); }
+  };
+}
+
+// ───── 4. установка ─────
+function fmtEta(s) { if (!s) return ""; const m = Math.round(s / 60); return m >= 60 ? `~${Math.floor(m / 60)} ч ${m % 60} мин` : m >= 1 ? `~${m} мин` : "меньше минуты"; }
+function pageInstall() {
+  $("#view").innerHTML = `<h2 id="ttl">Идёт установка…</h2>
+    <div class="banner warn" style="font-size:16px">⏳ <b>Не выключайте компьютер.</b> Окно можно свернуть. Если пропал интернет — просто нажмите «Продолжить» потом: докачка пойдёт с того же места.</div>
+    <div class="card"><div class="bar"><i id="allbar"></i></div><div class="muted small" id="alltxt" style="margin-top:6px"></div></div>
+    <div class="card" id="stepsBox"></div>
+    <div id="endBox"></div>
+    <details class="card"><summary>Показать подробности (для тех, кому интересно)</summary><div class="logbox" id="log"></div></details>`;
+  dock(`<span class="muted" id="dk">Идёт установка…</span><button id="stop">⏹ Остановить</button>`);
+  $("#stop").onclick = async () => { if (confirm("Остановить установку? Всё скачанное сохранится, продолжить можно позже.")) await api("/api/cancel", "POST", {}); };
+  clearInterval(S.poll); tick(); S.poll = setInterval(tick, 1000);
+}
+async function tick() {
+  let p; try { p = await api("/api/progress"); } catch { return; }
+  S.progress = p;
+  const st = p.steps || [];
+  const real = st.filter((s) => s.state !== "skip");
+  const sum = real.reduce((a, s) => a + (s.state === "ok" ? 100 : s.state === "run" ? s.pct : 0), 0);
+  const all = real.length ? sum / real.length : 100;
+  const bar = $("#allbar"); if (!bar) return;
+  bar.style.width = all.toFixed(1) + "%";
+  $("#alltxt").textContent = `Общий прогресс: ${all.toFixed(0)}% · прошло ${Math.floor(p.elapsed / 60)} мин`;
+  const ic = { wait: "⏳", run: "⬇️", ok: "✅", fail: "❌", skip: "✔️" };
+  $("#stepsBox").innerHTML = st.map((s) => `<div class="step"><div class="ico">${ic[s.state]}</div><div class="body"><div class="nm">${esc(s.title)} ${s.optional ? "" : "<span class='tag'>обязательно</span>"}</div>
+    ${s.state === "run" ? `<div class="bar" style="margin:6px 0"><i style="width:${s.pct}%"></i></div>` : ""}
+    <div class="nt">${s.state === "run" ? `${s.pct.toFixed(0)}% · ` : ""}${esc(s.note)}${s.speed > 1000 ? ` · ${(s.speed / 1048576).toFixed(1)} МБ/с` : ""}${s.eta ? ` · осталось ${fmtEta(s.eta)}` : ""}</div></div></div>`).join("");
+  const lg = $("#log"); if (lg) { lg.textContent = (p.log || []).join("\n"); }
+  if (["done", "error", "cancelled"].includes(p.status)) {
+    clearInterval(S.poll);
+    const failed = st.filter((s) => s.state === "fail");
+    if (p.status === "done" && !failed.length) { setTimeout(() => go(5), 800); return; }
+    $("#ttl").textContent = p.status === "cancelled" ? "Установка остановлена" : failed.length ? "Не всё получилось" : "Ошибка";
+    $("#endBox").innerHTML = `<div class="banner ${p.status === "cancelled" ? "warn" : "bad"}">${esc(p.summary || p.error || "")}
+      ${failed.length ? "<br><br><b>Что не получилось:</b><br>" + failed.map((s) => "• " + esc(s.title) + ": " + esc(s.note)).join("<br>") : ""}
+      <br><br><span class="small">Чаще всего помогает: проверить интернет, отключить VPN и нажать «Продолжить». Уже скачанное не пропадёт.</span></div>`;
+    dock(`<button id="close">Закрыть мастер</button><button class="primary" id="retry">▶ Продолжить / повторить</button>`);
+    $("#retry").onclick = async () => { try { await api("/api/start", "POST", { ids: [...S.sel] }); $("#endBox").innerHTML = ""; $("#ttl").textContent = "Идёт установка…"; dock(`<span class="muted">Идёт установка…</span><button id="stop2">⏹ Остановить</button>`); $("#stop2").onclick = () => api("/api/cancel", "POST", {}); clearInterval(S.poll); S.poll = setInterval(tick, 1000); } catch (e) { alert(e.message); } };
+    $("#close").onclick = () => api("/api/exit", "POST", {}).finally(() => window.close());
+  }
+}
+
+// ───── 5. готово ─────
+function pageDone() {
+  dock(`<button id="close">Закрыть мастер</button><button class="primary" id="run">🚀 Запустить Codwe AI</button>`);
+  $("#view").innerHTML = `<div class="center"><div class="hero">🎉</div><h2>Готово! Codwe AI установлен</h2></div>
+    <div class="card"><h3>Что делать дальше</h3>
+      <p><b>1.</b> Нажмите «Запустить Codwe AI» (или ярлык <b>Codwe AI</b> на рабочем столе).</p>
+      <p><b>2.</b> Программа попросит <b>код подключения</b> (начинается с <b>CODWE1.</b>) — его выдаёт тот, кто дал вам программу. Вводится один раз.</p>
+      <p><b>3.</b> Введите свою <b>почту</b> — придёт письмо с <b>кодом</b>. Введите код.</p>
+      <p><b>4.</b> Если попросит <b>пароль доступа</b> — его тоже выдаёт тот, кто дал вам программу.</p>
+      <p><b>5.</b> Прочитайте условия (там таймер на 20 секунд) и ответьте на 3 простых вопроса.</p>
+      <p><b>6.</b> Готово — можно пользоваться! Первое открытие чуть дольше обычного: загружается модель.</p></div>
+    <div class="card"><p class="muted">💡 Если что-то перестало работать, запустите этот мастер ещё раз: он сам проверит, что установлено, и починит недостающее.</p></div>`;
+  $("#run").onclick = async () => { await api("/api/launch", "POST", {}); setTimeout(() => api("/api/exit", "POST", {}).finally(() => window.close()), 2500); $("#run").textContent = "Запускаю…"; $("#run").disabled = true; };
+  $("#close").onclick = () => api("/api/exit", "POST", {}).finally(() => window.close());
+}
+
+function render() {
+  [pageWelcome, pageCheck, pageChoose, pageConfirm, pageInstall, pageDone][S.page]();
+}
+// если установка уже идёт (окно перезапустили) — сразу показываем её
+(async () => {
+  drawSteps();
+  try { const p = await api("/api/progress"); if (p.status === "running") { S.info = await api("/api/check"); applyPreset(null); S.page = 4; drawSteps(); render(); return; } } catch { /* */ }
+  render();
+})();
+</script>
+</body>
+</html>

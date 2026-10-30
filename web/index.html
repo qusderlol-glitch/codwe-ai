@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Codwe AI</title>
+<link rel="icon" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-view="chat">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<div id="app">
+  <!-- ───────── Верхняя панель ───────── -->
+  <header id="topbar">
+    <button class="logo-btn" id="logoBtn" title="Codwe AI — на главную"><img src="/static/logo-full.svg" alt="Codwe AI"></button>
+
+    <nav id="nav" aria-label="Разделы">
+      <button class="nav-btn active" data-view="chat" style="--c:#8b5cf6"><svg class="i"><use href="#i-chat"/></svg><span>Чат</span></button>
+      <button class="nav-btn" data-view="code" style="--c:#38bdf8"><svg class="i"><use href="#i-code"/></svg><span>Codwecode</span></button>
+      <button class="nav-btn" data-view="live" style="--c:#facc15"><svg class="i"><use href="#i-bolt"/></svg><span>Live</span></button>
+      <button class="nav-btn" data-view="images" style="--c:#ec4899"><svg class="i"><use href="#i-image"/></svg><span>Картинки</span></button>
+      <button class="nav-btn" data-view="edit" style="--c:#34d399"><svg class="i"><use href="#i-edit"/></svg><span>Редактор</span></button>
+      <button class="nav-btn" data-view="video" style="--c:#f59e0b"><svg class="i"><use href="#i-film"/></svg><span>Видео</span></button>
+      <button class="nav-btn" data-view="gallery" style="--c:#22d3ee"><svg class="i"><use href="#i-grid"/></svg><span>Галерея</span></button>
+    </nav>
+
+    <div class="top-right">
+      <div class="effort" id="effort">
+        <button class="effort-pill" id="effortBtn" title="Effort — насколько сильно стараться ИИ"><svg class="i"><use href="#i-gauge"/></svg><span id="effortTxt">Normal · 11%</span></button>
+        <div class="effort-card" id="effortCard" hidden>
+          <div class="ef-head"><b>Effort</b><span id="efName">Normal</span></div>
+          <input type="range" id="efRange" min="0" max="100" step="1" value="11">
+          <div class="ef-levels" id="efLevels"></div>
+          <div class="ef-info" id="efInfo"></div>
+          <p class="hint">Чем выше effort, тем дольше и лучше: больше попыток (лучшая выбирается автоматически), второй проход с мелкими деталями, а в чате — глубже «размышления». Действует на картинки, чат и (по мере возможности) правки и видео.</p>
+        </div>
+      </div>
+      <button class="shield" id="safetyBtn" data-state="on" title="Безопасные лимиты"><svg class="i"><use href="#i-shield"/></svg><span id="safetyTxt">Защита</span></button>
+
+      <div class="power" id="power" data-state="off" tabindex="0">
+        <div class="power-pill">
+          <i class="dot"></i>
+          <span class="power-title" id="powerTitle">ИИ выключен</span>
+          <button class="switch" id="powerSwitch" hidden role="switch" aria-checked="false" aria-label="Включить или выключить ИИ"><i></i></button>
+        </div>
+        <div class="power-card">
+          <div class="power-sub" id="powerSub">Видеокарта свободна</div>
+          <div class="gpu" id="gpu" hidden>
+            <div class="gpu-bar"><i id="gpuFill"></i></div>
+            <div class="gpu-txt"><span id="gpuName">GPU</span><span id="gpuMem">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="icon-btn" id="themeBtn" title="Тема" aria-label="Сменить тему"><svg class="i"><use href="#i-sun"/></svg></button>
+      <button class="icon-btn" id="openSettings" title="Настройки" aria-label="Настройки"><svg class="i"><use href="#i-gear"/></svg></button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ───────── ОБОЛОЧКА: Чат / Проекты / Артефакты (как в Claude Desktop) ───────── -->
+    <div class="shell" id="shell">
+      <aside class="chat-side" id="chatSide">
+        <button class="btn-new" id="newChat"><span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>Новый чат</button>
+        <nav class="side-nav" id="sideNav">
+          <button data-sidenav="chat" class="active"><svg class="i"><use href="#i-chat"/></svg><span>Чаты</span></button>
+          <button data-sidenav="projects"><svg class="i"><use href="#i-folder"/></svg><span>Проекты</span><em class="count" id="cntProjects"></em></button>
+          <button data-sidenav="artifacts"><svg class="i"><use href="#i-cube"/></svg><span>Артефакты</span><em class="count" id="cntArtifacts"></em></button>
+          <button data-sidenav="code"><svg class="i"><use href="#i-code"/></svg><span>Codwecode</span></button>
+        </nav>
+        <div class="side-title" id="sideProjTitle" hidden>Проекты</div>
+        <div class="side-projects" id="sideProjects"></div>
+        <div class="side-title">Недавние</div>
+        <div class="hist" id="history"></div>
+      </aside>
+
+      <div class="shell-content">
+        <!-- ЧАТ -->
+        <section class="view" id="view-chat">
+          <div class="chat-row">
+            <div class="chat-main">
+              <div class="chat-top">
+                <button class="side-toggle" id="sideToggle"><svg class="i"><use href="#i-menu"/></svg>Меню</button>
+                <div class="chat-ctx" id="chatCtx" hidden></div>
+              </div>
+              <div class="chat-scroll" id="chatScroll">
+                <div class="chat-col" id="chatCol"></div>
+              </div>
+              <div class="composer-wrap">
+                <div class="off-banner" id="chatOff" hidden>
+                  <span>ИИ выключен — включите его, чтобы общаться.</span>
+                  <button class="btn small primary" data-power-on>Включить</button>
+                </div>
+                <div class="composer" id="composer">
+                  <textarea id="chatInput" rows="1" placeholder="Напишите сообщение… или «нарисуй кота-космонавта»" maxlength="100000"></textarea>
+                  <div class="composer-bar">
+                    <div class="chips">
+                      <div class="menu-wrap">
+                        <button class="chip plus-chip" id="plusBtn" title="Быстрые действия"><svg class="i"><use href="#i-plus"/></svg></button>
+                        <div class="menu up" id="plusMenu" hidden>
+                          <button data-act="img"><b>🎨 Нарисовать картинку</b><small>Прямо в чате: «нарисуй …»</small></button>
+                          <button data-act="edit"><b>✏️ Изменить картинку</b><small>Открыть редактор</small></button>
+                          <button data-act="live"><b>⚡ Live-рисование</b><small>Картинка меняется, пока печатаешь</small></button>
+                          <button data-act="video"><b>🎬 Оживить в видео</b><small>Вкладка «Видео»</small></button>
+                          <button data-act="code"><b>💻 Открыть «Код»</b><small>Файлы, терминал и ассистент</small></button>
+                        </div>
+                      </div>
+                      <div class="menu-wrap">
+                        <button class="chip" id="personaBtn" title="Роль / системный промпт"><svg class="i"><use href="#i-spark"/></svg><span id="personaName">Умный помощник</span><svg class="i sm"><use href="#i-chev"/></svg></button>
+                        <div class="menu up" id="personaMenu" hidden></div>
+                      </div>
+                      <div class="menu-wrap">
+                        <button class="chip" id="modelBtn" title="Модель"><svg class="i"><use href="#i-cpu"/></svg><span id="modelName">модель</span><svg class="i sm"><use href="#i-chev"/></svg></button>
+                        <div class="menu up" id="modelMenu" hidden></div>
+                      </div>
+                    </div>
+                    <button class="send" id="sendBtn" aria-label="Отправить" disabled><svg class="i"><use href="#i-send"/></svg></button>
+                  </div>
+                </div>
+                <div class="fineprint">Codwe AI работает на вашем компьютере. Модели могут ошибаться — проверяйте важное.</div>
+              </div>
+            </div>
+
+            <!-- панель артефакта (как в Claude) -->
+            <aside class="artifact-panel" id="artifactPanel" hidden>
+              <div class="ap-head">
+                <div class="ap-title"><svg class="i"><use href="#i-cube"/></svg><b id="apTitle">Артефакт</b><span class="ap-type" id="apType">html</span></div>
+                <div class="ap-actions">
+                  <select id="apVersion" title="Версия"></select>
+                  <div class="seg" id="apMode"><button data-m="preview" class="active">Просмотр</button><button data-m="code">Код</button></div>
+                  <button class="icon-btn" id="apCopy" title="Копировать"><svg class="i"><use href="#i-copy"/></svg></button>
+                  <button class="icon-btn" id="apDown" title="Скачать"><svg class="i"><use href="#i-down"/></svg></button>
+                  <button class="icon-btn" id="apFull" title="На весь экран"><svg class="i"><use href="#i-expand"/></svg></button>
+                  <button class="icon-btn" id="apClose" title="Закрыть"><svg class="i"><use href="#i-x"/></svg></button>
+                </div>
+              </div>
+              <div class="ap-body" id="apBody"></div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ПРОЕКТЫ -->
+        <section class="view" id="view-projects" hidden>
+          <div class="page-head"><div><h2>Проекты</h2><p>Свои инструкции и файлы для группы чатов: ИИ помнит контекст проекта.</p></div><button class="btn primary" id="newProject"><svg class="i"><use href="#i-plus"/></svg>Новый проект</button></div>
+          <div class="page-body" id="projectsBody"></div>
+        </section>
+
+        <!-- АРТЕФАКТЫ -->
+        <section class="view" id="view-artifacts" hidden>
+          <div class="page-head"><div><h2>Артефакты</h2><p>Страницы, игры и рисунки, которые ИИ создал в чатах.</p></div><input id="artSearch" class="search" type="search" placeholder="Поиск артефактов…"></div>
+          <div class="art-layout">
+            <div class="art-list" id="artList"></div>
+            <div class="art-view" id="artView"><div class="empty-state"><svg class="i xl"><use href="#i-cube"/></svg><b>Выберите артефакт слева</b><span>Или попросите ИИ в чате: «сделай игру змейка».</span></div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ───────── КОД: файлы, редактор, терминал, ассистент ───────── -->
+    <section class="view" id="view-code" hidden>
+      <div class="code-layout" id="codeLayout">
+        <aside class="code-explorer">
+          <div class="ce-head"><b>Файлы</b>
+            <span class="ce-actions">
+              <button class="icon-btn sm" id="ceNewFile" title="Новый файл"><svg class="i"><use href="#i-file-plus"/></svg></button>
+              <button class="icon-btn sm" id="ceNewDir" title="Новая папка"><svg class="i"><use href="#i-folder-plus"/></svg></button>
+              <button class="icon-btn sm" id="ceRefresh" title="Обновить"><svg class="i"><use href="#i-refresh"/></svg></button>
+            </span>
+          </div>
+          <div class="ce-root" id="ceRoot">workspace / <b id="ceCwd">default</b></div>
+          <div class="ce-tree" id="ceTree"></div>
+        </aside>
+
+        <div class="code-center">
+          <div class="code-tabs" id="codeTabs"></div>
+          <div class="code-editor" id="codeEditorBox">
+            <div class="code-empty" id="codeEmpty"><svg class="i xl"><use href="#i-code"/></svg><b>Откройте файл слева или попросите ассистента создать проект</b><span>Например: «сделай игру змейка в одном html-файле».</span></div>
+            <div class="ed-wrap" id="edWrap" hidden><pre class="ed-gutter" id="edGutter"></pre><textarea id="codeEditor" spellcheck="false" wrap="off"></textarea></div>
+          </div>
+          <div class="code-bottom" id="codeBottom">
+            <div class="cb-tabs">
+              <button data-cb="term" class="active"><svg class="i sm"><use href="#i-terminal"/></svg>Терминал</button>
+              <button data-cb="preview"><svg class="i sm"><use href="#i-play"/></svg>Предпросмотр</button>
+              <span class="cb-fill"></span>
+              <button class="icon-btn sm" id="cbClear" title="Очистить"><svg class="i"><use href="#i-trash"/></svg></button>
+            </div>
+            <div class="cb-pane" id="cbTerm">
+              <div class="term-off" id="termOff" hidden>
+                <svg class="i xl"><use href="#i-terminal"/></svg><b>Терминал выключен</b>
+                <span>Он выполняет команды на вашем компьютере от вашего имени. Включайте, только если понимаете, что делаете.</span>
+                <button class="btn primary" id="termEnable">Включить терминал…</button>
+              </div>
+              <div class="term-on" id="termOn" hidden>
+                <div class="term-out" id="termOut"></div>
+                <div class="term-in"><span class="term-prompt" id="termPrompt">default&gt;</span><input id="termInput" type="text" spellcheck="false" autocomplete="off" placeholder="Команда, например: python --version"><button class="btn small" id="termStop" hidden>Стоп</button></div>
+              </div>
+            </div>
+            <div class="cb-pane" id="cbPreview" hidden>
+              <div class="pv-bar"><input id="pvPath" type="text" placeholder="Файл для просмотра, например index.html"><button class="btn small" id="pvGo">Открыть</button><button class="btn small" id="pvReload">↻</button></div>
+              <iframe id="pvFrame" title="Предпросмотр" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+            </div>
+          </div>
+        </div>
+
+        <aside class="code-assistant">
+          <div class="ca-head"><svg class="i"><use href="#i-spark"/></svg><b>codwecode</b><span class="ca-note" id="caNote">знает ваши файлы</span><button class="icon-btn sm" id="caClear" title="Новый разговор"><svg class="i"><use href="#i-trash"/></svg></button></div>
+          <div class="ca-opts">
+            <label class="chip-check" title="Сам открывает игру, фотографирует экран, смотрит снимки и чинит ошибки"><input type="checkbox" id="caAgent" checked><span>🤖 Агент: запуск, фото, исправление</span></label>
+            <label class="chip-check" title="Разрешить искать в интернете и читать страницы"><input type="checkbox" id="caNet" checked><span>🌐 Интернет</span></label>
+            <button class="icon-btn sm" id="caConf" title="Настройки поиска">⚙</button>
+          </div>
+          <div class="ca-scroll" id="caScroll"><div class="ca-col" id="caCol"></div></div>
+          <div class="ca-compose"><textarea id="caInput" rows="2" placeholder="Что сделать? Например: «сделай игру…», «найди в интернете…». Enter — отправить"></textarea><button class="send" id="caSend" disabled><svg class="i"><use href="#i-send"/></svg></button><button class="btn small" id="caStop" hidden>Стоп</button></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ───────── LIVE ───────── -->
+    <section class="view" id="view-live" hidden>
+      <div class="live-wrap">
+        <div class="off-banner" data-off hidden><span>ИИ выключен.</span><button type="button" class="btn small primary" data-power-on>Включить</button></div>
+        <div class="live-stage" id="liveStage">
+          <img id="liveImg" alt="" hidden>
+          <div class="live-empty" id="liveEmpty"><svg class="i xl"><use href="#i-bolt"/></svg><b>Начните печатать — картинка появится сама</b><span>Каждая буква перерисовывает картинку. Пишите по-русски, перевод автоматический.</span></div>
+          <div class="live-badge" id="liveBadge" hidden>⚡ <b id="liveMs">—</b></div>
+          <div class="live-loading" id="liveLoading" hidden><i></i><span id="liveLoadText">Загружаю модель в видеопамять…</span></div>
+        </div>
+        <div class="live-dock">
+          <div class="live-bar">
+            <input id="liveInput" type="text" placeholder="Печатайте: например «кот в космическом шлеме»" maxlength="500" autocomplete="off" spellcheck="false">
+            <button type="button" class="live-btn" id="liveDice" title="Другой вариант (новый seed)">🎲</button>
+            <button type="button" class="live-btn" id="liveSave" title="Сохранить в галерею">Сохранить</button>
+            <button type="button" class="live-btn hq" id="liveHQ" title="Нарисовать эту идею в высоком качестве">В высоком качестве →</button>
+          </div>
+          <div class="live-opts">
+            <div class="live-opt"><span>Модель</span><div class="seg" id="liveModel"><button type="button" data-v="fast" class="active">Молния</button></div></div>
+            <div class="live-opt"><span>Размер</span><div class="seg" id="liveSize"><button type="button" data-v="512" class="active">512</button><button type="button" data-v="768">768</button></div></div>
+            <div class="live-opt"><span>Шагов</span><div class="seg" id="liveSteps"><button type="button" data-v="1" class="active">1</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button></div></div>
+            <div class="live-opt wide"><span>Стиль</span><div class="chips-row" id="liveStyles"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────── КАРТИНКИ ───────── -->
+    <section class="view" id="view-images" hidden>
+      <div class="split">
+        <div class="results" id="imgResults"><div class="empty-state" id="imgEmpty"><svg class="i xl"><use href="#i-image"/></svg><b>Здесь появятся ваши картинки</b><span>Напишите даже одно слово — ИИ-помощник додумает остальное.</span></div></div>
+        <form class="panel" id="imgForm" autocomplete="off">
+          <div class="off-banner" data-off hidden><span>ИИ выключен.</span><button type="button" class="btn small primary" data-power-on>Включить</button></div>
+
+          <div class="lbl-row"><label class="lbl" for="imgPrompt">Что нарисовать</label><button type="button" class="link-btn" id="imgIdea">🎲 Идея</button></div>
+          <textarea id="imgPrompt" rows="3" placeholder="Напишите по-русски, как удобно. Например: привет" maxlength="4000"></textarea>
+
+          <div class="chips-row" id="imgStyles" aria-label="Стили"></div>
+
+          <div class="helper">
+            <label class="check big"><input type="checkbox" id="imgEnhance" checked><span><b>✨ ИИ-помощник</b> сам напишет идеальный промпт: переведёт, защитит руки и лица от ошибок</span></label>
+            <button type="button" class="btn small" id="imgPeek">Показать, что придумал ИИ</button>
+            <div class="peek" id="imgPeekBox" hidden>
+              <div class="peek-notes" id="imgNotes"></div>
+              <label class="lbl">Промпт для модели (можно править)</label>
+              <textarea id="imgFinal" rows="4" maxlength="4000"></textarea>
+              <details><summary>Чего избегать (негативный промпт)</summary><textarea id="imgFinalNeg" rows="3" maxlength="4000"></textarea></details>
+              <div class="peek-model" id="imgPeekModel"></div>
+            </div>
+          </div>
+
+          <div class="helper cam">
+            <label class="check big"><input type="checkbox" id="camOn"><span><b>📷 Фото с камеры</b> — не «обложка», а обычный снимок: простая сцена, обычный свет, шум и сжатие как у настоящей камеры</span></label>
+            <div id="camBox" hidden>
+              <div class="seg" id="camKind"><button type="button" data-c="phone" class="active">Смартфон</button><button type="button" data-c="dslr">Зеркалка</button><button type="button" data-c="film">Плёнка</button><button type="button" data-c="compact">Мыльница</button><button type="button" data-c="cctv">Охрана</button></div>
+              <label class="lbl">Сила эффекта: <b id="camStrV">100</b>%</label><input type="range" id="camStr" min="0" max="150" value="100">
+              <p class="hint">Меняет и описание сцены (обычный кадр без «киношности»), и само изображение (шум, виньетка, аберрации, JPEG). В файл вшивается пометка «создано ИИ».</p>
+            </div>
+          </div>
+
+          <label class="lbl">Модель</label>
+          <div class="cards" id="imgModels"></div>
+
+          <label class="lbl">Формат</label>
+          <div class="ratios" id="imgAspect">
+            <button type="button" class="ratio active" data-a="portrait"><i style="width:18px;height:26px"></i><span>Портрет</span></button>
+            <button type="button" class="ratio" data-a="landscape"><i style="width:26px;height:18px"></i><span>Широкий</span></button>
+            <button type="button" class="ratio" data-a="square"><i style="width:22px;height:22px"></i><span>Квадрат</span></button>
+          </div>
+
+          <details class="adv"><summary>Расширенные настройки</summary>
+            <label class="check"><input type="checkbox" id="imgCustom"><span>Задать шаги и точность вручную</span></label>
+            <div class="row2">
+              <div><label class="lbl">Шагов: <b id="imgStepsV">30</b></label><input type="range" id="imgSteps" min="1" max="50" value="30" disabled></div>
+              <div><label class="lbl">Точность к тексту: <b id="imgCfgV">6</b></label><input type="range" id="imgCfg" min="1" max="15" step="0.5" value="6" disabled></div>
+            </div>
+            <div class="row2">
+              <div><label class="lbl">Сколько штук: <b id="imgCountV">1</b></label><input type="range" id="imgCount" min="1" max="4" value="1"></div>
+              <div><label class="lbl" for="imgSeed">Seed (пусто — случайный)</label><input type="number" id="imgSeed" min="0" placeholder="случайный"></div>
+            </div>
+            <p class="hint">Совет: сделайте 2–3 штуки и выберите лучшую — так вероятность идеальных рук выше.</p>
+          </details>
+          <button class="btn primary big" id="imgGo" type="submit">✨ Создать картинку</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ───────── РЕДАКТОР ───────── -->
+    <section class="view" id="view-edit" hidden>
+      <div class="split">
+        <div class="results" id="editResults"><div class="empty-state" id="editEmpty"><svg class="i xl"><use href="#i-edit"/></svg><b>Здесь появятся изменённые картинки</b><span>Загрузите картинку и напишите, что поменять — как в Gemini.</span></div></div>
+        <form class="panel" id="editForm" autocomplete="off">
+          <div class="off-banner" data-off hidden><span>ИИ выключен.</span><button type="button" class="btn small primary" data-power-on>Включить</button></div>
+          <label class="lbl">Ваша картинка</label>
+          <div class="drop" id="editDrop">
+            <img id="editPreview" alt="" hidden>
+            <div class="drop-hint" id="editDropHint"><svg class="i xl"><use href="#i-image"/></svg><span>Перетащите картинку сюда или нажмите, чтобы выбрать файл</span></div>
+            <input type="file" id="editFile" accept="image/*" hidden>
+          </div>
+          <button type="button" class="btn small" id="editPick">Выбрать из галереи</button>
+
+          <div class="lbl-row"><label class="lbl" for="editReq">Что изменить</label></div>
+          <textarea id="editReq" rows="3" placeholder="Например: сделай ночь · добавь солнечные очки · перерисуй в стиле аниме" maxlength="1000"></textarea>
+          <div class="chips-row" id="editChips"></div>
+
+          <div class="helper">
+            <div class="helper-line"><b>✨ ИИ-редактор</b> смотрит на картинку, понимает вашу просьбу и сам выбирает лучший способ изменения.</div>
+            <button type="button" class="btn small" id="editPeek">Показать план ИИ</button>
+            <div class="peek" id="editPeekBox" hidden>
+              <div class="peek-notes" id="editNotes"></div>
+              <div class="peek-model" id="editPlanMethod"></div>
+              <div class="peek-model" id="editPlanText"></div>
+            </div>
+          </div>
+
+          <label class="lbl">Способ</label>
+          <div class="seg" id="editMode"><button type="button" data-m="auto" class="active">Авто</button><button type="button" data-m="instruct">По инструкции</button><button type="button" data-m="redraw">Перерисовать</button></div>
+          <p class="hint" id="editModeHint">Авто: ИИ сам решает. «По инструкции» точечно меняет картинку (ночь, очки, шляпа). «Перерисовать» меняет стиль (аниме, масло) через сильные модели.</p>
+          <label class="check"><input type="checkbox" id="editStrAuto" checked><span>Силу изменения подобрать автоматически</span></label>
+          <div class="row2" id="editStrRow" hidden><div><label class="lbl">Сила изменения: <b id="editStrV">50</b>%</label><input type="range" id="editStr" min="5" max="100" value="50"></div></div>
+          <details class="adv"><summary>Расширенные настройки</summary>
+            <label class="lbl">Модель для «Перерисовать»</label>
+            <div class="seg" id="editModel"><button type="button" data-k="auto" class="active">Авто</button><button type="button" data-k="real">Реализм</button><button type="button" data-k="anime">Аниме</button></div>
+            <div class="row2">
+              <div><label class="lbl">Сколько вариантов: <b id="editCountV">1</b></label><input type="range" id="editCount" min="1" max="4" value="1"></div>
+              <div><label class="lbl" for="editSeed">Seed (пусто — случайный)</label><input type="number" id="editSeed" min="0" placeholder="случайный"></div>
+            </div>
+            <p class="hint">Результат можно менять дальше: нажмите на карандаш на готовой картинке — это следующий шаг правки.</p>
+          </details>
+          <button class="btn primary big" id="editGo" type="submit">✨ Изменить картинку</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ───────── ВИДЕО ───────── -->
+    <section class="view" id="view-video" hidden>
+      <div class="split">
+        <div class="results" id="vidResults"><div class="empty-state" id="vidEmpty"><svg class="i xl"><use href="#i-film"/></svg><b>Здесь появятся ваши видео</b><span>Выберите картинку или опишите сцену текстом.</span></div></div>
+        <form class="panel" id="vidForm" autocomplete="off">
+          <div class="off-banner" data-off hidden><span>ИИ выключен.</span><button type="button" class="btn small primary" data-power-on>Включить</button></div>
+          <div class="seg" id="vidSource"><button type="button" data-src="file" class="active">Из картинки</button><button type="button" data-src="text">Из текста</button></div>
+
+          <div id="vidFileBox">
+            <label class="lbl">Картинка для оживления</label>
+            <div class="drop" id="vidDrop">
+              <img id="vidPreview" alt="" hidden>
+              <div class="drop-hint" id="vidDropHint"><svg class="i xl"><use href="#i-image"/></svg><span>Перетащите картинку сюда или нажмите, чтобы выбрать файл</span></div>
+              <input type="file" id="vidFile" accept="image/*" hidden>
+            </div>
+            <button type="button" class="btn small" id="vidPick">Выбрать из галереи</button>
+            <div class="helper">
+              <label class="check big"><input type="checkbox" id="vidDirector" checked><span><b>✨ ИИ-режиссёр</b> посмотрит на картинку: выберет формат без обрезки лиц и рук и подберёт безопасную силу движения</span></label>
+              <label class="lbl">Что должно двигаться (по желанию)</label>
+              <textarea id="vidWish" rows="2" placeholder="Например: лёгкий ветер в волосах, она чуть улыбается" maxlength="500"></textarea>
+              <p class="hint">Сама модель видео текст не читает — режиссёр переводит ваше пожелание в силу движения.</p>
+              <button type="button" class="btn small" id="vidLook">Показать, что увидел ИИ</button>
+              <div class="peek" id="vidLookBox" hidden>
+                <div class="peek-notes" id="vidLookNotes"></div>
+                <div class="peek-model" id="vidLookDesc"></div>
+                <div class="peek-model" id="vidLookRec"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="vidTextBox" hidden>
+            <div class="lbl-row"><label class="lbl" for="vidPrompt">Что должно быть на видео</label><button type="button" class="link-btn" id="vidIdea">🎲 Идея</button></div>
+            <textarea id="vidPrompt" rows="3" placeholder="Например: девушка идёт под дождём" maxlength="4000"></textarea>
+            <label class="lbl">Нарисовать первый кадр моделью</label>
+            <div class="seg" id="vidImgModel"><button type="button" data-m="auto" class="active">Авто</button><button type="button" data-m="anime">Аниме</button><button type="button" data-m="real">Реализм</button></div>
+            <div class="helper">
+              <label class="check big"><input type="checkbox" id="vidEnhance" checked><span><b>✨ ИИ-помощник</b> напишет спокойный первый кадр и подберёт силу движения</span></label>
+              <button type="button" class="btn small" id="vidPeek">Показать, что придумал ИИ</button>
+              <div class="peek" id="vidPeekBox" hidden>
+                <div class="peek-notes" id="vidNotes"></div>
+                <label class="lbl">Промпт первого кадра (можно править)</label>
+                <textarea id="vidFinal" rows="4" maxlength="4000"></textarea>
+                <details><summary>Чего избегать</summary><textarea id="vidFinalNeg" rows="3" maxlength="4000"></textarea></details>
+              </div>
+            </div>
+          </div>
+
+          <label class="lbl">Формат</label>
+          <div class="seg" id="vidFormat"><button type="button" data-f="auto" class="active">Авто</button><button type="button" data-f="landscape">Широкий 16:9</button><button type="button" data-f="portrait">Вертикальный</button><button type="button" data-f="square">Квадрат</button></div>
+          <label class="check"><input type="checkbox" id="vidMotionAuto" checked><span>Сила движения — подобрать автоматически (спокойно, без «плывущих» лиц)</span></label>
+          <div class="row2" id="vidMotionRow" hidden>
+            <div><label class="lbl">Сила движения: <b id="vidMotionV">100</b></label><input type="range" id="vidMotion" min="1" max="255" value="100"></div>
+          </div>
+          <details class="adv"><summary>Расширенные настройки</summary>
+            <div class="row2">
+              <div><label class="lbl">Кадров: <b id="vidFramesV">25</b></label><input type="range" id="vidFrames" min="8" max="25" value="25"></div>
+              <div><label class="lbl">Шагов: <b id="vidStepsV">20</b></label><input type="range" id="vidSteps" min="8" max="40" value="20"></div>
+            </div>
+            <div class="row2">
+              <div><label class="lbl">Кадров/сек: <b id="vidFpsV">8</b></label><input type="range" id="vidFps" min="5" max="14" value="8"></div>
+              <div><label class="lbl" for="vidSeed">Seed (пусто — случайный)</label><input type="number" id="vidSeed" min="0" placeholder="случайный"></div>
+            </div>
+          </details>
+          <p class="hint">Видео занимает 3–10 минут на вашей видеокарте.</p>
+          <button class="btn primary big" id="vidGo" type="submit">🎬 Создать видео</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ───────── ГАЛЕРЕЯ ───────── -->
+    <section class="view" id="view-gallery" hidden>
+      <div class="gal-bar">
+        <div class="seg" id="galFilter"><button data-k="all" class="active">Всё</button><button data-k="image">Картинки</button><button data-k="video">Видео</button></div>
+        <span class="hint" id="galCount"></span>
+      </div>
+      <div class="gal-grid" id="galGrid"></div>
+    </section>
+  </main>
+
+  <!-- нижняя навигация для телефона -->
+  <nav id="bottomnav" aria-label="Разделы (телефон)"></nav>
+</div>
+
+<div id="modal" class="modal" hidden><div class="modal-card" id="modalCard"></div></div>
+<div id="toasts" aria-live="polite"></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m4 18 5-5 4 4 3-3 4 4"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16M16 4v16M3 9h5M3 15h5M16 9h5M16 15h5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v12M6 12l6 6 6-6M5 21h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.8a8 8 0 1 0 11.4 0"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3z"/><path d="m9 12 2.2 2.2L15.5 10"/></symbol>
+    <symbol id="i-shield-off" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zM12 11v5M9.5 13.5h5"/></symbol>
+    <symbol id="i-file-plus" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5zM14 3v5h5M12 11v6M9 14h6"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5zM14 3v5h5"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 3 4 7.5v9L12 21l8-4.500v-9L12 3zM4 7.500l8 4.500 8-4.500M12 12v9"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.500 5l-3 14"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M12.500 15H17"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-5M4.500 17.500a8.500 8.500 0 1 1 15 0"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  </defs>
+</svg>
+<script src="/static/auth.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/workspace.js"></script>
+</body>
+</html>
