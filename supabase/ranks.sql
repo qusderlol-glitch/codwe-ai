@@ -286,6 +286,26 @@ grant execute on function public.owner_set_rank(text, text, int, text, text[]) t
 grant execute on function public.owner_delete_rank(text) to authenticated;
 grant execute on function public.is_admin() to authenticated;
 
+-- ───── 9b. Сайт: кто скачал и общий счётчик регистраций ─────
+alter table public.profiles add column if not exists downloaded_at timestamptz;
+
+-- сайт вызывает это, когда вошедший пользователь нажимает «Скачать»
+create or replace function public.mark_download() returns void
+language sql security definer set search_path = public as $$
+  update public.profiles set downloaded_at = coalesce(downloaded_at, now()) where id = auth.uid() and not banned;
+$$;
+
+-- публичный счётчик для главной страницы сайта: только число, без почт
+create or replace function public.site_stats() returns json
+language sql security definer stable set search_path = public as $$
+  select json_build_object('users', (select count(*) from public.profiles));
+$$;
+
+revoke all on function public.mark_download() from public, anon;
+grant execute on function public.mark_download() to authenticated;
+revoke all on function public.site_stats() from public;
+grant execute on function public.site_stats() to anon, authenticated;
+
 -- ───── 10. ВЛАДЕЛЕЦ ─────
 -- Почта владельца (профиль уже должен существовать, то есть вы входили в приложение с этой почтой).
 update public.profiles set role = 'owner', access_ok = true, banned = false, ban_reason = null

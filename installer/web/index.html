@@ -27,6 +27,8 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .row { display:flex; gap:14px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--line); } .row:last-child { border:0; }
 .ico { font-size:26px; width:34px; flex:none; text-align:center; }
 .lvl-ok .t { color:var(--ok); } .lvl-warn .t { color:var(--warn); } .lvl-bad .t { color:var(--bad); }
+.rep { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 0; border-bottom:1px solid var(--line); }
+.rep:last-of-type { border-bottom:0; } .rep b { min-width:190px; } .rep i { color:var(--muted); font-style:normal; flex:1; } .rep.no b { color:var(--warn); } .ri { font-size:18px; }
 .fix { margin-top:4px; padding:8px 12px; border-radius:10px; background:#00000033; border-left:4px solid var(--warn); font-size:15px; }
 .lvl-bad .fix { border-color:var(--bad); }
 .banner { padding:16px 18px; border-radius:16px; margin:12px 0; font-size:18px; }
@@ -104,8 +106,18 @@ async function pageCheck() {
   if (hasBad) ban = `<div class="banner bad"><b>❌ Есть серьёзные проблемы (${bad.length}).</b><br>Программа может работать плохо или не работать вовсе. Прочитайте красные пункты ниже.</div>`;
   else if (warn.length) ban = `<div class="banner warn"><b>⚠️ Всё в целом подходит, но есть предупреждения (${warn.length}).</b><br>Это не страшно — просто прочитайте жёлтые пункты.</div>`;
   else ban = `<div class="banner ok"><b>✅ Отлично!</b> Ваш компьютер подходит для всего.</div>`;
-  const help = { driver: "driver", edge: "edge", python: "python" };
-  $("#view").innerHTML = `<h2>Проверка компьютера</h2>${ban}<div class="card">${S.info.rows.map((r) => `
+  const help = { driver: "driver", edge: "edge", python: "python", ollama: "ollama", gpu: "driver" };
+  const rowOf = (id) => S.info.rows.find((r) => r.id === id);
+  const need = [["python", "Python"], ["ollama", "Ollama (умный чат)"], ["gpu", "Видеокарта NVIDIA"], ["driver", "Драйвер NVIDIA"], ["edge", "Microsoft Edge"]];
+  const rep = need.map(([id, name]) => {
+    const r = rowOf(id); if (!r) return "";
+    const ok = r.level === "ok";
+    return `<div class="rep ${ok ? "ok" : "no"}"><span class="ri">${ok ? "✅" : "❌"}</span><b>${name}</b><i>${esc(r.value)}</i>${!ok && help[id] ? `<button class="small" data-open="${help[id]}">Открыть страницу установки</button>` : ""}</div>`;
+  }).join("");
+  const have = S.info.components.filter((c) => c.installed).map((c) => esc(c.title));
+  const report = `<div class="card"><h3>📋 Доклад: что уже есть на вашем компьютере</h3>${rep}
+    <p class="muted small" style="margin:10px 0 0">Красное не страшно: мастер установит Ollama сам, а для остального здесь есть кнопки со ссылками.${have.length ? `<br>Уже установлено из программы: <b>${have.join(", ")}</b>.` : ""}</p></div>`;
+  $("#view").innerHTML = `<h2>Проверка компьютера</h2>${report}${ban}<div class="card">${S.info.rows.map((r) => `
     <div class="row lvl-${r.level}"><div class="ico">${ICON[r.level]}</div><div><h3 class="t">${esc(r.title)}: <span style="color:var(--text)">${esc(r.value)}</span></h3>
     <div>${esc(r.simple)}</div>${r.fix ? `<div class="fix">👉 Что делать: ${esc(r.fix)}${help[r.id] ? ` <button class="small" data-open="${help[r.id]}">Открыть страницу</button>` : ""}</div>` : ""}</div></div>`).join("")}</div>
     ${hasBad ? `<div class="card"><label class="chk"><input type="checkbox" id="okBad" ${S.okBad ? "checked" : ""}><span><b>Я прочитал(а) красные пункты и всё равно хочу продолжить.</b><br><span class="muted small">Лучше сначала исправить проблему. Но если вам нужен только чат — можно продолжать.</span></span></label></div>` : ""}`;

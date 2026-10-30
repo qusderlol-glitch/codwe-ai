@@ -107,6 +107,11 @@ def check():
     rows.append(row("python", "Python", f"{v.major}.{v.minor}.{v.micro}", "ok" if ok else "warn",
                     "Python — язык, на котором написана программа. Подходит." if ok else "Эта версия Python слишком новая или старая — нужная библиотека может не установиться.",
                     "" if ok else "Поставьте Python 3.12 (python.org) и запустите мастер заново."))
+    # Ollama
+    ox = ollama_exe()
+    rows.append(row("ollama", "Ollama (мотор умного чата)", "установлена" if ox else "не установлена", "ok" if ox else "warn",
+                    "Ollama запускает умный чат. Она уже есть." if ox else "Ollama запускает умный чат. Её пока нет на этом компьютере.",
+                    "" if ox else "Мастер скачает и поставит её сам (около 1,7 ГБ). Можно поставить заранее вручную по кнопке."))
     # видеокарта
     g = gpu_info()
     if not g:
@@ -159,8 +164,8 @@ def check():
     # прочее
     code, _o = sh(["winget", "--version"])
     rows.append(row("winget", "Установщик программ winget", "есть" if code == 0 else "нет", "ok" if code == 0 else "warn",
-                    "Через него мастер сам поставит Ollama." if code == 0 else "Ollama придётся поставить вручную (мастер откроет страницу).",
-                    "" if code == 0 else "Это нормально, мастер подскажет, что нажимать."))
+                    "Есть. Для Codwe AI он не обязателен." if code == 0 else "Не обязателен: Ollama мастер скачивает напрямую с официального сайта.",
+                    ""))
     rows.append(row("edge", "Браузер Microsoft Edge", "есть" if edge_exe() else "нет", "ok" if edge_exe() else "warn",
                     "Нужен, чтобы окно программы открывалось и чтобы Codwecode проверял игры." if edge_exe() else "Без Edge окно программы не откроется красиво, а Codwecode не сможет проверять игры.",
                     "" if edge_exe() else "Скачайте Microsoft Edge с microsoft.com/edge."))
@@ -326,20 +331,96 @@ def do_core():
     upd(id_, pct=100, note="Готово", speed=0, eta=0)
 
 
+OLLAMA_SETUP = "https://ollama.com/download/OllamaSetup.exe"
+
+
+def download_file(url, dest, id_, label, stall=45, tries=6):
+    """Скачивает файл с живым прогрессом. Если данные перестали идти (stall секунд) или связь оборвалась,
+    докачивает с того же места (до tries раз), а не висит молча."""
+    import requests
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    sp = Speed()
+    for attempt in range(1, tries + 1):
+        have = part.stat().st_size if part.exists() else 0
+        try:
+            hdr = {"Range": f"bytes={have}-"} if have else {}
+            with requests.get(url, headers=hdr, stream=True, timeout=(15, stall), allow_redirects=True) as r:
+                if r.status_code == 416:  # файл уже докачан целиком
+                    break
+                if r.status_code not in (200, 206):
+                    raise RuntimeError(f"сервер ответил {r.status_code}")
+                if r.status_code == 200 and have:  # сервер не поддержал докачку: начинаем сначала
+                    have = 0
+                    part.unlink(missing_ok=True)
+                total = have + int(r.headers.get("Content-Length") or 0)
+                done = have
+                with open(part, "ab" if have else "wb") as f:
+                    for chunk in r.iter_content(1 << 20):
+                        check_cancel()
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        done += len(chunk)
+                        v, eta = sp.feed(done, total or done)
+                        upd(id_, pct=round(min(done / max(total, 1), 1) * 88, 1), speed=v, eta=eta,
+                            note=f"{label}: {done / 1e9:.2f} из {total / 1e9:.2f} ГБ" + (f" · попытка {attempt}" if attempt > 1 else ""))
+                if total and part.stat().st_size < total:
+                    raise RuntimeError("файл скачан не полностью")
+            break
+        except Cancelled:
+            raise
+        except Exception as e:  # noqa
+            log(f"{label}: обрыв ({str(e)[:120]}), попытка {attempt} из {tries}. Докачиваю с того же места…")
+            upd(id_, note=f"{label}: связь оборвалась, повторяю ({attempt} из {tries})…", speed=0, eta=0)
+            if attempt == tries:
+                raise RuntimeError("не удалось скачать: " + str(e)[:150])
+            for _ in range(4 * attempt):
+                check_cancel()
+                time.sleep(1)
+    part.replace(dest)
+    return dest
+
+
+def is_signed_by(path, name):
+    """Проверяем цифровую подпись скачанного установщика: запускаем только файл, подписанный разработчиком."""
+    ps = (f"$s=Get-AuthenticodeSignature -LiteralPath '{path}'; if($s.Status -eq 'Valid'){{$s.SignerCertificate.Subject}}else{{'INVALID '+$s.Status}}")
+    code, out = sh(["powershell", "-NoProfile", "-Command", ps], timeout=90)
+    return code == 0 and name.lower() in out.lower()
+
+
 def do_ollama():
     id_ = "ollama"
     if ollama_exe():
         return
-    code, _o = sh(["winget", "--version"])
-    if code == 0:
-        upd(id_, note="Устанавливаю Ollama через winget (может появиться окно Windows — разрешите)…", pct=5)
-        rc = run_proc(["winget", "install", "-e", "--id", "Ollama.Ollama", "--silent", "--accept-package-agreements",
-                       "--accept-source-agreements"], id_, timeout=1800)
-        if rc != 0 and not ollama_exe():
-            log("winget не смог поставить Ollama, переходим на ручную установку")
-    if not ollama_exe():
+    setup = MODELS / "_downloads" / "OllamaSetup.exe"
+    ok = False
+    try:
+        upd(id_, note="Скачиваю Ollama с официального сайта ollama.com…", pct=1)
+        if not (setup.exists() and setup.stat().st_size > 500_000_000):
+            download_file(OLLAMA_SETUP, setup, id_, "Ollama")
+        if not is_signed_by(setup, "Ollama"):
+            setup.unlink(missing_ok=True)
+            raise RuntimeError("у скачанного файла нет подписи Ollama, запускать его небезопасно")
+        upd(id_, note="Устанавливаю Ollama (небольшое окно установки закроется само)…", pct=90, speed=0, eta=0)
+        p = subprocess.Popen([str(setup), "/SILENT", "/NORESTART"], creationflags=NO_WINDOW)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < 900:
+            check_cancel()
+            time.sleep(1)
+        for _ in range(30):
+            if ollama_exe():
+                break
+            time.sleep(1)
+        ok = bool(ollama_exe())
+    except Cancelled:
+        raise
+    except Exception as e:  # noqa
+        log(f"Автоустановка Ollama не получилась: {str(e)[:160]}")
+    if not ok and not ollama_exe():
         webbrowser.open("https://ollama.com/download/windows")
-        upd(id_, note="Откройте страницу ollama.com, скачайте и установите Ollama. Мастер продолжит сам, как только увидит её.", pct=10)
+        upd(id_, note="Автоматически не вышло. Откройте страницу ollama.com (мы её открыли), скачайте и установите Ollama. Мастер продолжит сам.", pct=10, speed=0, eta=0)
         for _ in range(900):  # ждём до 15 минут
             check_cancel()
             if ollama_exe():
@@ -347,7 +428,7 @@ def do_ollama():
             time.sleep(1)
     if not ollama_exe():
         raise RuntimeError("Ollama так и не появилась")
-    upd(id_, pct=100, note="Готово")
+    upd(id_, pct=100, note="Готово", speed=0, eta=0)
 
 
 def ollama_up():
@@ -383,21 +464,37 @@ def do_chat():
         return
     sp = Speed()
     layers = {}
-    with requests.post(OLLAMA_URL + "/api/pull", json={"model": model, "stream": True}, stream=True, timeout=(10, 120)) as r:
-        r.raise_for_status()
-        for line in r.iter_lines():
-            check_cancel()
-            if not line:
-                continue
-            d = json.loads(line)
-            if "error" in d:
-                raise RuntimeError(str(d["error"])[:200])
-            if d.get("digest") and d.get("total"):
-                layers[d["digest"]] = (d.get("completed", 0), d["total"])
-            done = sum(a for a, _b in layers.values())
-            total = sum(b for _a, b in layers.values()) or 1
-            v, eta = sp.feed(done, total)
-            upd(id_, pct=round(done / total * 100, 1), note=d.get("status", "")[:60], speed=v, eta=eta)
+    for attempt in range(1, 9):
+        try:
+            with requests.post(OLLAMA_URL + "/api/pull", json={"model": model, "stream": True}, stream=True, timeout=(10, 60)) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    check_cancel()
+                    if not line:
+                        continue
+                    d = json.loads(line)
+                    if "error" in d:
+                        raise RuntimeError(str(d["error"])[:200])
+                    if d.get("digest") and d.get("total"):
+                        layers[d["digest"]] = (d.get("completed", 0), d["total"])
+                    done = sum(a for a, _b in layers.values())
+                    total = sum(b for _a, b in layers.values()) or 1
+                    v, eta = sp.feed(done, total)
+                    note = f"{done / 1e9:.1f} из {total / 1e9:.1f} ГБ · {d.get('status', '')[:40]}" + (f" · попытка {attempt}" if attempt > 1 else "")
+                    upd(id_, pct=round(done / total * 100, 1), note=note, speed=v, eta=eta)
+            break
+        except Cancelled:
+            raise
+        except (requests.RequestException, ValueError) as e:
+            # данные перестали идти (60 с) или связь оборвалась: Ollama умеет докачивать, просто просим снова
+            log(f"Скачивание чата замерло или оборвалось ({str(e)[:100]}). Повторяю, докачка с того же места ({attempt} из 8)…")
+            upd(id_, note=f"Связь оборвалась, повторяю ({attempt} из 8)…", speed=0, eta=0)
+            if attempt == 8:
+                raise RuntimeError("скачивание много раз обрывалось: проверьте интернет и отключите VPN, затем нажмите «Повторить»")
+            for _ in range(5 * attempt):
+                check_cancel()
+                time.sleep(1)
+            ensure_ollama_running()
     if not ollama_has(model):
         raise RuntimeError("модель не появилась после скачивания")
     upd(id_, pct=100, note="Готово", speed=0, eta=0)
@@ -647,6 +744,7 @@ def build_app():
     @app.post("/api/open")
     def api_open(req: IdReq):
         urls = {"ollama": "https://ollama.com/download/windows", "driver": "https://www.nvidia.com/Download/index.aspx",
+                "winget": "https://apps.microsoft.com/detail/9nblggh4nns1",
                 "edge": "https://www.microsoft.com/edge", "python": "https://www.python.org/downloads/"}
         if req.id not in urls:
             raise HTTPException(400, "нельзя")

@@ -64,6 +64,24 @@ if not exist "venv\Scripts\python.exe" (
   )
 )
 
+rem ---- 2b. report: what is installed, and links for what is missing ----
+echo.
+echo  ===============================================
+echo    WHAT IS ON YOUR COMPUTER
+echo  ===============================================
+echo    [OK] Python found
+set "HAVE_OLLAMA="
+where ollama >nul 2>&1 && set "HAVE_OLLAMA=1"
+if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" set "HAVE_OLLAMA=1"
+if defined HAVE_OLLAMA (echo    [OK] Ollama - runs the smart chat) else (echo    [..] Ollama is NOT installed. The installer will download it for you.& echo         Manual link: https://ollama.com/download/windows)
+nvidia-smi >nul 2>&1
+if errorlevel 1 (echo    [!!] NVIDIA video card or driver NOT found. Pictures and video need it.& echo         Driver link: https://www.nvidia.com/Download/index.aspx) else (echo    [OK] NVIDIA video card and driver)
+if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (echo    [OK] Microsoft Edge) else (echo    [!!] Microsoft Edge NOT found. Link: https://www.microsoft.com/edge)
+echo.
+echo    The installer window will show the same report with buttons.
+echo.
+timeout /t 4 >nul
+
 rem ---- 3. tools for the installer window ----
 echo  Preparing the installer (1-2 minutes) ...
 "venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q fastapi==0.161.1 uvicorn==0.54.0 requests==2.34.2 psutil==7.2.2 huggingface_hub==1.33.0 pydantic==2.14.1
