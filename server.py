@@ -42,14 +42,16 @@ import auth_api  # noqa: E402  (вход по почте, роли, баны, у
 import codwecode_api  # noqa: E402  (агент codwecode: снимки экрана, зрение, поиск)
 import devlog  # noqa: E402  (живая лента событий для DEV-консоли; без текстов запросов)
 import dev_api  # noqa: E402  (DEV-консоль: команды и лента)
+import guard_api as page_guard  # noqa: E402  (страж страницы: пульс, вмешательство, блокировка)
 import engine  # noqa: E402  (effort, режим «фото с камеры», выбор лучшей попытки)
 
 safety.set_provider(auth_api.soft_safety)  # режим безопасности 18+/gore общий для всех и задаётся из облака
 
-PORT = int(os.environ.get("CODWE_PORT", "8765"))
+PORT = int(os.environ.get("CODWE_PORT") or 38765)  # свой порт (8765 занимают другие программы); лаунчер сам выбирает свободный
 OUT = HOME / "outputs"
 UPLOADS = HOME / "uploads"
-WEB = HOME / "web"
+# готовая «зашифрованная» сборка интерфейса (tools/build_dist.py); в режиме разработчика отдаются читаемые исходники
+WEB = HOME / "web_dist" if ((HOME / "web_dist" / "index.html").exists() and (not auth_api.DEV or os.environ.get("CODWE_DIST") == "1") and os.environ.get("CODWE_SRC") != "1") else HOME / "web"
 for d in (OUT, UPLOADS, WEB):
     d.mkdir(exist_ok=True)
 
@@ -1347,10 +1349,14 @@ async def guard(request: Request, call_next):
     if request.method not in ("GET", "HEAD") and request.headers.get("x-codwe") != "1":
         return PlainTextResponse("forbidden", status_code=403)
     p0 = request.url.path
-    if p0.startswith("/api/") and not p0.startswith("/api/auth/") and p0 != "/api/status":
+    _api = p0.startswith("/api/") and not p0.startswith("/api/auth/") and not p0.startswith("/api/guard/") and p0 != "/api/status"
+    _files = p0.startswith(("/outputs/", "/uploads/", "/wsfiles/")) or p0 in ("/outputs", "/uploads", "/wsfiles")
+    if _api or _files:
         from starlette.concurrency import run_in_threadpool
-        g = await run_in_threadpool(auth_api.gate)  # вход, условия, целостность файлов
+        g = await run_in_threadpool(lambda: auth_api.gate() or page_guard.gate(request.headers.get("x-guard"), _api))  # вход, условия, целостность файлов, страж
         if g:
+            if _files:  # картинки и файлы не отдаём без входа (бан, выход, вмешательство)
+                return PlainTextResponse("forbidden", status_code=403)
             return JSONResponse({"detail": g[1], "code": g[0]}, status_code=g[2])
     resp = await call_next(request)
     path = request.url.path
@@ -1364,6 +1370,12 @@ async def guard(request: Request, call_next):
         resp.headers["Content-Security-Policy"] = "sandbox allow-scripts allow-forms allow-modals allow-popups"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"   # чужие сайты не могут подгрузить ваши картинки
+    resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    resp.headers["Permissions-Policy"] = "geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+    if not path.startswith("/wsfiles"):
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers.setdefault("Content-Security-Policy", "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     return resp
 
 
@@ -1378,7 +1390,10 @@ def status_payload():
 
 @app.get("/api/status")
 def api_status():
-    return status_payload()
+    p = status_payload()
+    if auth_api.gate() or page_guard.gate(None, False):  # без входа не показываем задачи, видеокарту и модели
+        p.update(jobs=[], loaded=[], gpu={}, chat_model="")
+    return p
 
 
 class PowerReq(BaseModel):
@@ -1933,6 +1948,7 @@ async def api_upload(file: UploadFile = File(...)):
     data = await file.read(20 * 1024 * 1024 + 1)
     if len(data) > 20 * 1024 * 1024:
         raise HTTPException(413, "Файл больше 20 МБ.")
+    Image.MAX_IMAGE_PIXELS = 48_000_000  # «бомба» из пикселей не съест память
     try:
         import io
         img = Image.open(io.BytesIO(data))
@@ -1943,6 +1959,31 @@ async def api_upload(file: UploadFile = File(...)):
     name = f"up_{uuid.uuid4().hex[:10]}.png"
     img.save(UPLOADS / name)
     return {"name": name, "url": f"/uploads/{name}"}
+
+
+# ───── копия чатов и настроек (localStorage окна). Нужна, чтобы чаты не пропали при смене окна (браузер / приложение) ─────
+STATE_FILE = HOME / "app_state.bin"
+
+
+class StateReq(BaseModel):
+    data: dict[str, str] = Field(max_length=200)
+
+
+@app.get("/api/state/load")
+def api_state_load():
+    try:
+        return {"exists": True, "data": auth_api._read_secret(STATE_FILE)}
+    except Exception:
+        return {"exists": False, "data": {}}
+
+
+@app.post("/api/state/save")
+def api_state_save(req: StateReq):
+    data = {k: v for k, v in req.data.items() if k.startswith("codwe.") and len(k) < 80}
+    if not data or sum(len(v) for v in data.values()) > 40_000_000:
+        raise HTTPException(400, "Нечего сохранять или слишком много.")
+    auth_api._write_secret(STATE_FILE, data)  # шифруется ключом вашей учётной записи Windows
+    return {"ok": True}
 
 
 @app.post("/api/shutdown")
@@ -1959,6 +2000,7 @@ def api_shutdown():
 
 app.include_router(auth_api.router)
 app.include_router(auth_api.admin_router)
+app.include_router(page_guard.router)
 dev_api.bind(catalog=model_catalog, status=status_payload,
              jobs=lambda: [public_job(j) for j in sorted(JOBS.values(), key=lambda j: j["created"])[-15:]])
 app.include_router(dev_api.router)

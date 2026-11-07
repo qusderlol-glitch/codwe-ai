@@ -360,7 +360,7 @@ function fillBody(el, m, live) {
 function renderChat() {
   const col = $("#chatCol");
   if (!cur.messages.length) {
-    col.innerHTML = `<div class="welcome"><img class="hero-logo" src="/static/logo-full.svg" alt="Codwe AI"><h2>Чем могу <em>помочь</em>?</h2><p>Работаю прямо на вашем компьютере — бесплатно и приватно. Пишу код, тексты и отвечаю на вопросы.</p><div class="sugg">${SUGGEST.map((s, i) => `<button data-sg="${i}"><b>${s[0]}</b><span>${s[1]}</span></button>`).join("")}</div></div>`;
+    col.innerHTML = `<div class="welcome"><img class="hero-logo" data-g src="/static/logo-full.svg" alt="Codwe AI"><h2 data-g>Чем могу <em>помочь</em>?</h2><p>Работаю прямо на вашем компьютере — бесплатно и приватно. Пишу код, тексты и отвечаю на вопросы.</p><div class="sugg">${SUGGEST.map((s, i) => `<button data-sg="${i}"><b>${s[0]}</b><span>${s[1]}</span></button>`).join("")}</div></div>`;
     if (window.codweAurora) window.codweAurora.start();
     return;
   }
@@ -1200,7 +1200,7 @@ $("#openSettings").onclick = () => {
   const c = openModal(`<h3>Настройки</h3>
     <div><label class="lbl">Тема</label><div class="seg" id="stTheme"><button data-t="dark" class="${th === "dark" ? "active" : ""}">Тёмная</button><button data-t="light" class="${th === "light" ? "active" : ""}">Светлая</button><button data-t="auto" class="${th === "auto" ? "active" : ""}">Как в системе</button></div></div>
     <div><label class="lbl">Чат</label><label class="check big"><input type="checkbox" id="stArt" ${settings.artifacts ? "checked" : ""}><span><b>Артефакты</b> — ИИ делает сайты, игры и SVG одним файлом, а справа открывается просмотр</span></label><label class="check big"><input type="checkbox" id="stAuto" ${settings.autoOpen ? "checked" : ""}><span>Открывать артефакт автоматически</span></label><label class="check big"><input type="checkbox" id="stDuo" ${settings.duo !== false ? "checked" : ""}><span><b>Две модели в чате</b> — когда просите нарисовать, текстовая модель сначала отвечает словами, а потом картиночная рисует</span></label></div>
-    <div><label class="lbl">Приватность</label><p>🔒 <b>Ваши фото и запросы никто не видит.</b> Сервер слушает только этот компьютер (127.0.0.1). Чаты хранятся в вашем браузере, картинки и видео — в папке <code>outputs</code>. Ни разработчик, ни администраторы, ни другие пользователи не могут их открыть: в облако они не отправляются. В облаке лежат только почта, ранг и статус блокировки. В интернет уходит лишь то, что вы сами запустили: поиск в Codwecode или скачивание моделей.</p></div>
+    <div><label class="lbl">Приватность</label><p data-g>🔒 <b>Ваши фото и запросы никто не видит.</b> Сервер слушает только этот компьютер (127.0.0.1). Чаты хранятся в вашем браузере, картинки и видео — в папке <code>outputs</code>. Ни разработчик, ни администраторы, ни другие пользователи не могут их открыть: в облако они не отправляются. В облаке лежат только почта, ранг и статус блокировки. В интернет уходит лишь то, что вы сами запустили: поиск в Codwecode или скачивание моделей.</p></div>
     <div class="modal-actions"><button class="btn danger" id="stClear">Очистить историю чатов</button><button class="btn danger" id="stQuit">Остановить сервер</button><button class="btn primary" id="stClose">Готово</button></div>`);
   $("#stTheme", c).onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; store.set("codwe.theme", b.dataset.t); applyTheme(); setSeg("#stTheme", "t", b.dataset.t); };
   $("#stClose", c).onclick = closeModal;
@@ -1223,4 +1223,35 @@ $("#openSettings").onclick = () => {
   showSource(); updateSend();
   await pollStatus();
   ensureModels();
+})();
+
+// ───────────── копия чатов и настроек на компьютере ─────────────
+// Чаты лежат в памяти окна. Копия на диске (зашифрована ключом Windows) нужна, чтобы они не пропали при смене окна
+// (браузер -> приложение) или очистке данных. На новом пустом окне чаты возвращаются сами.
+(async function syncLocalData() {
+  const DATA = ["codwe.chats", "codwe.projects", "codwe.artifacts", "codwe.personas", "codwe.code.chat"];
+  const keys = () => Object.keys(localStorage).filter((k) => k.startsWith("codwe."));
+  const snap = () => { const o = {}; keys().forEach((k) => { o[k] = localStorage.getItem(k); }); return o; };
+  const hasLocal = () => DATA.some((k) => { const v = localStorage.getItem(k); return v && v !== "[]" && v !== "{}" && v !== "null"; });
+  const H = { "Content-Type": "application/json", "X-Codwe": "1" };
+  try {
+    if (!hasLocal() && !sessionStorage.getItem("codwe.restored")) {
+      const r = await (await fetch("/api/state/load")).json();
+      if (r && r.data && Object.keys(r.data).some((k) => DATA.includes(k))) {
+        Object.entries(r.data).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch { /* */ } });
+        sessionStorage.setItem("codwe.restored", "1");
+        location.reload();
+        return;
+      }
+    }
+  } catch { /* нет входа или сервер перезапускается: копия подождёт */ }
+  let last = "";
+  const push = async () => {
+    if (!hasLocal()) return;   // пустое окно никогда не затирает копию
+    const o = snap(), j = JSON.stringify(o);
+    if (j === last || j.length > 30e6) return;
+    try { const r = await fetch("/api/state/save", { method: "POST", headers: H, body: JSON.stringify({ data: o }) }); if (r.ok) last = j; } catch { /* */ }
+  };
+  setTimeout(push, 4000); setInterval(push, 20000);
+  addEventListener("pagehide", push);
 })();

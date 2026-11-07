@@ -104,7 +104,7 @@
         const r = await A().call("/api/dev/exec", "POST", { cmd });
         if (r.clear) root.querySelector("#devOut").innerHTML = "";
         if (r.explain) out("exp", "↳ " + r.explain);
-        (r.lines || []).forEach((l) => out(l.c, l.t));
+        (r.lines || []).forEach((l) => { if (l.c === "act") { if (l.t === "guard-test" && window.codweGuard) window.codweGuard.test(); } else out(l.c, l.t); });
       } catch (e) { out("err", e.message); }
     }
     busy = false;

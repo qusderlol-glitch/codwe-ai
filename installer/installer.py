@@ -26,6 +26,15 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 from catalog import BY_ID, COMPONENTS, PRESETS, with_dependencies  # noqa: E402
 
 PORT = 8766
+import socket as _sk
+for _p in range(8766, 8800):  # мастер установки сам находит свободный порт
+    with _sk.socket() as _s:
+        try:
+            _s.bind(("127.0.0.1", _p))
+            PORT = _p
+            break
+        except OSError:
+            continue
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PY = sys.executable
 PYW = str(Path(PY).with_name("pythonw.exe")) if Path(PY).with_name("pythonw.exe").exists() else PY
@@ -204,7 +213,7 @@ def ollama_has(model):
 def installed():
     import importlib.util as iu
     res = {}
-    res["core"] = all(iu.find_spec(m) for m in ("torch", "diffusers", "transformers", "fastapi", "playwright"))
+    res["core"] = all(iu.find_spec(m) for m in ("torch", "diffusers", "transformers", "fastapi", "playwright", "webview"))
     res["ollama"] = bool(ollama_exe())
     res["chat"] = ollama_has(BY_ID["chat"]["model"])
     for c in COMPONENTS:
@@ -562,9 +571,14 @@ def make_shortcut():
     desktop = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Desktop"
     lnk = desktop / "Codwe AI.lnk"
     ico = ROOT / "web" / "codwe.ico"
-    ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');$s.TargetPath='{PYW}';"
-          f"$s.Arguments='\"{ROOT / 'launcher.py'}\"';$s.WorkingDirectory='{ROOT}';"
-          + (f"$s.IconLocation='{ico}';" if ico.exists() else "") + "$s.Save()")
+    exe = ROOT / "Codwe AI.exe"  # если собран «Codwe AI.exe» (tools/build_exe.py), ярлык ведёт на него
+    if exe.exists():
+        ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');$s.TargetPath='{exe}';"
+              f"$s.WorkingDirectory='{ROOT}';$s.IconLocation='{exe},0';$s.Save()")
+    else:
+        ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');$s.TargetPath='{PYW}';"
+              f"$s.Arguments='\"{ROOT / 'launcher.py'}\"';$s.WorkingDirectory='{ROOT}';"
+              + (f"$s.IconLocation='{ico}';" if ico.exists() else "") + "$s.Save()")
     sh(["powershell", "-NoProfile", "-Command", ps])
     return lnk.exists()
 

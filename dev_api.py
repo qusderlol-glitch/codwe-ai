@@ -110,6 +110,18 @@ def c_status(a, o):
     o.text("Файлы программы: " + ("целы" if ok else "ИЗМЕНЕНЫ — " + why))
 
 
+def c_guard(a, o):
+    import guard_api
+    s = guard_api.status_line()
+    o.text(f"Режим: {'наблюдение (вас не блокирует)' if s['observe'] else 'ЗАЩИТА (блокирует и пугает)'}   Страниц под наблюдением: {s['sessions']}")
+    o.text(f"Нарушений с запуска: {s['strikes']}   Доступ закрыт ещё: {s['locked_for']} с" + (f"   Причина: {s['reason']}" if s["reason"] else ""))
+    if a and a[0].lower() == "test":
+        o.ok("Показываю скример на странице на 4 секунды…")
+        o.add("act", "guard-test")
+    else:
+        o.dim("Три стража: А — тексты и картинки, Б — код страницы, В — сервер (пульс каждые 15 с). «guard test» — посмотреть скример.")
+
+
 def c_users(a, o):
     q = (a[0].lower() if a else "")
     users = [u for u in auth_api.list_users() if q in u["email"].lower() or q in (u.get("role") or "")]
@@ -288,7 +300,7 @@ _reg("status", c_status, "status", "Сводка: включён ли ИИ, ви
 _reg("users", c_users, "users [поиск]", "Список пользователей из облака: ранг, блокировка, когда заходили.", "users.view")
 _reg("ranks", c_ranks, "ranks", "Все ранги: уровень, ключ, название и права.")
 _reg("perms", c_perms, "perms", "Список всех прав, которые можно выдавать рангам.")
-_reg("ban", c_ban, "ban почта [причина]", "Блокирует пользователя (вход закрыт). Только тех, кто ниже вас рангом; владельца забанить нельзя.", "users.ban")
+_reg("ban", c_ban, "ban почта [причина]", "Блокирует пользователя: он заходит, но видит «ВЫ БЫЛИ ЗАБАНЕНЫ» и причину. Только тех, кто ниже вас рангом; владельца забанить нельзя.", "users.ban")
 _reg("unban", c_unban, "unban почта", "Снимает блокировку с пользователя.", "users.ban")
 _reg("rank", c_rank, "rank почта ранг", "Выдаёт пользователю ранг. Только ниже вашего, и только тому, кто ниже вас.", "users.rank")
 _reg("access-reset", c_access_reset, "access-reset почта", "Сбрасывает пользователю доступ: он снова вводит пароль доступа.", "access.manage")
@@ -305,6 +317,7 @@ _reg("connect-code", c_connect, "connect-code", "Показывает код п�
 _reg("refresh", c_refresh, "refresh", "Сразу перезагружает ваш профиль, ранги и общие настройки из облака.")
 _reg("jobs", c_jobs, "jobs", "Задачи в очереди и в работе (без текстов запросов).")
 _reg("integrity", c_integrity, "integrity", "Проверяет, не изменены ли файлы программы.")
+_reg("guard", c_guard, "guard [test]", "Страж страницы: сколько страниц под наблюдением, нарушения, блокировка. «guard test» показывает скример на 4 секунды (только для режима наблюдения).", "dev.console")
 _reg("clear", None, "clear", "Очищает экран консоли (лента справа не очищается).")
 
 _ALIASES = {"?": "help", "me": "whoami", "ls": "users", "models-list": "models"}

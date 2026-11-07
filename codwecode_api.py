@@ -12,6 +12,7 @@ import base64
 import html
 import io
 import ipaddress
+import os
 import re
 import socket
 import threading
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/api/cc")
 ROOT = workspace_api.ROOT
 SHOTS = ROOT / ".shots"
 SHOTS.mkdir(exist_ok=True)
-BASE = "http://127.0.0.1:8765"
+BASE = "http://127.0.0.1:" + (os.environ.get("CODWE_PORT") or "38765")
 UA = {"User-Agent": "CodweAI/1.0 (personal local assistant; https://localhost) python-requests", "Accept-Language": "ru,en;q=0.8"}
 _deps = {}
 _shot_lock = threading.Lock()

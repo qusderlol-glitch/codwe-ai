@@ -39,7 +39,7 @@
       ${perms.includes("access.manage") ? `<button class="ac-item" data-act="code"><span class="ac-ic">🔗</span><span>Код подключения</span></button>` : ""}
       <button class="ac-item" data-act="settings"><span class="ac-ic">⚙</span><span>Настройки</span></button>
       <div class="ac-sep"></div>
-      <div class="ac-priv">🔒 Ваши фото и запросы хранятся только на этом компьютере. Их никто не видит.</div>
+      <div class="ac-priv" data-g>🔒 Ваши фото и запросы хранятся только на этом компьютере. Их никто не видит.</div>
       <button class="ac-item danger" data-act="out"><span class="ac-ic">⎋</span><span>Выйти</span></button>`;
     document.body.appendChild(menu);
     const r = btn.getBoundingClientRect();

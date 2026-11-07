@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 372 172" role="img" aria-label="Codwe AI">
+  <defs>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="10" y1="20" x2="362" y2="150">
+      <stop offset="0" stop-color="#e3ff7a"/>
+      <stop offset=".45" stop-color="#8af0b4"/>
+      <stop offset="1" stop-color="#3ee6c4"/>
+    </linearGradient>
+    <linearGradient id="ga" gradientUnits="userSpaceOnUse" x1="170" y1="20" x2="340" y2="150">
+      <stop offset="0" stop-color="#c6f432"/>
+      <stop offset="1" stop-color="#3ee6c4"/>
+    </linearGradient>
+    <linearGradient id="gs" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="1" stop-color="#8ff7de"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="7"/></filter>
+  </defs>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- свечение -->
+    <g filter="url(#glow)" opacity=".6" stroke="url(#g)">
+      <path d="M128 36A66 66 0 1 0 128 134" stroke-width="18"/>
+      <path d="M70 46h12a23 23 0 0 1 0 46H70z" stroke-width="10"/>
+      <path d="M180 148 214 26l34 122M192 108h44" stroke-width="18"/>
+      <path d="M292 26v122" stroke-width="18"/>
+    </g>
+
+    <!-- большая C -->
+    <path d="M128 36A66 66 0 1 0 128 134" stroke="url(#g)" stroke-width="18"/>
+    <!-- «O» в виде D внутри C -->
+    <path d="M70 46h12a23 23 0 0 1 0 46H70z" stroke="url(#g)" stroke-width="10"/>
+    <!-- WE под D -->
+    <path d="M52 109l7 21 8-15 8 15 7-21" stroke="url(#g)" stroke-width="7"/>
+    <path d="M111 109H97v21h14M97 119.500h11" stroke="url(#g)" stroke-width="7"/>
+
+    <!-- большие A и I -->
+    <path d="M180 148 214 26l34 122M192 108h44" stroke="url(#ga)" stroke-width="18"/>
+    <path d="M292 26v122" stroke="url(#ga)" stroke-width="18"/>
+  </g>
+  <!-- искра ИИ -->
+  <path d="M331 18q3 15 17 17-14 2-17 17-3-15-17-17 14-2 17-17z" fill="url(#gs)"/>
+</svg>

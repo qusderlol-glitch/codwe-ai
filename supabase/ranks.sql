@@ -113,7 +113,8 @@ begin
     raise exception 'нельзя: ранг этого пользователя не ниже вашего';
   end if;
   update public.profiles set banned = flag, ban_reason = case when flag then reason else null end where id = target;
-  update auth.users set banned_until = case when flag then 'infinity'::timestamptz else null end where id = target;
+  -- вход НЕ блокируем в облаке: забаненный заходит и видит экран «ВЫ БЫЛИ ЗАБАНЕНЫ» с причиной; работать ему не даёт профиль (banned)
+  update auth.users set banned_until = null where id = target;
   perform public.log_action(case when flag then 'ban' else 'unban' end, tmail, reason);
 end;
 $$;
@@ -171,6 +172,42 @@ begin
   end if;
   update public.profiles set access_fails = 0, access_ok = false where id = target;
   perform public.log_action('access-reset', tmail, null);
+end;
+$$;
+
+-- ───── 6b. Пароль доступа: защита от перебора через много аккаунтов ─────
+-- Раньше у каждого аккаунта было 10 попыток. Теперь ещё и общий предел: не больше 120 неверных попыток на всех за 10 минут.
+create table if not exists public.access_attempts (id bigserial primary key, uid uuid, ts timestamptz not null default now());
+alter table public.access_attempts enable row level security;
+revoke all on public.access_attempts from anon, authenticated;
+create index if not exists access_attempts_ts on public.access_attempts (ts);
+
+create or replace function public.check_access_password(pw text)
+returns boolean language plpgsql security definer set search_path = public, extensions as $$
+declare h text; ok boolean; p public.profiles;
+begin
+  if auth.uid() is null then return false; end if;
+  select * into p from public.profiles where id = auth.uid();
+  if p.id is null or p.banned then return false; end if;
+  select value into h from public.app_config where key = 'access_hash';
+  if h is null then
+    update public.profiles set access_ok = true where id = auth.uid();
+    return true;
+  end if;
+  if p.access_fails >= 10 then raise exception 'locked'; end if;
+  if (select count(*) from public.access_attempts where ts > now() - interval '10 minutes') >= 120 then raise exception 'locked'; end if;
+  if p.access_try is not null and now() - p.access_try < interval '3 seconds' and coalesce(pw, '') <> '' then
+    raise exception 'too_fast';
+  end if;
+  ok := crypt(coalesce(pw, ''), h) = h;
+  if ok then
+    update public.profiles set access_ok = true, access_fails = 0, access_try = now() where id = auth.uid();
+  elsif coalesce(pw, '') <> '' then
+    update public.profiles set access_fails = access_fails + 1, access_try = now() where id = auth.uid();
+    insert into public.access_attempts (uid) values (auth.uid());
+    delete from public.access_attempts where ts < now() - interval '1 day';
+  end if;
+  return ok;
 end;
 $$;
 
@@ -312,6 +349,8 @@ update public.profiles set role = 'owner', access_ok = true, banned = false, ban
  where lower(email) = 'ВАША_ПОЧТА@example.com'
    and not exists (select 1 from public.profiles where role = 'owner');
 update auth.users set banned_until = null where lower(email) = 'ВАША_ПОЧТА@example.com';
+-- старые блокировки входа снимаем: теперь бан показывается экраном, а не обрывом сессии
+update auth.users set banned_until = null where id in (select id from public.profiles where banned);
 
 -- Итог: внизу должна быть строка с вашей почтой и рангом owner.
 select email, role from public.profiles order by created_at;

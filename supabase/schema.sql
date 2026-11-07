@@ -64,7 +64,7 @@ begin
   if not public.is_admin() then raise exception 'нет прав администратора'; end if;
   if target = auth.uid() then raise exception 'нельзя банить самого себя'; end if;
   update public.profiles set banned = flag, ban_reason = case when flag then reason else null end where id = target;
-  update auth.users set banned_until = case when flag then 'infinity'::timestamptz else null end where id = target;
+  update auth.users set banned_until = null where id = target;  -- вход не блокируем: человек видит экран бана с причиной
 end;
 $$;
 

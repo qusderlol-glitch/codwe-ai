@@ -19,7 +19,7 @@
     try {
       const u = typeof a[0] === "string" ? a[0] : a[0].url;
       if ((res.status === 401 || res.status === 403) && /\/api\//.test(u) && !/\/api\/auth\//.test(u)) {
-        res.clone().json().then((j) => { if (j && ["auth_required", "tos_required", "tamper", "banned", "connect_required", "access_required"].includes(j.code)) refresh(); }).catch(() => {});
+        res.clone().json().then((j) => { if (j && ["auth_required", "tos_required", "tamper", "banned", "connect_required", "access_required", "guard"].includes(j.code)) refresh(); }).catch(() => {});
       }
     } catch { /* */ }
     return res;
@@ -41,10 +41,14 @@
       <p>Файлы Codwe AI не совпадают с оригиналом, поэтому программа заблокирована.</p>
       <p class="lock-r">${esc(reason || "")}</p><p>Скачайте Codwe AI заново из официального источника.</p></div>`, "lock-layer");
   }
-  function bannedScreen(msg) {
-    show(`<div class="lock"><div class="lock-ico">🚫</div><h1>Доступ закрыт</h1><p>${esc(msg || "Аккаунт заблокирован.")}</p>
-      <button class="btn" id="auOut">Выйти</button></div>`, "lock-layer ban");
-    layer.querySelector("#auOut").onclick = async () => { await call("/api/auth/logout", "POST").catch(() => {}); refresh(); };
+  function bannedScreen(s) {
+    show(`<div class="lock ban-box"><div class="lock-ico">🚫</div><h1>ВЫ БЫЛИ ЗАБАНЕНЫ</h1>
+      <div class="ban-mail">${esc((s && s.email) || "")}</div>
+      <div class="ban-why"><span>Причина</span><b>${esc((s && s.ban_reason) || "не указана")}</b></div>
+      <p>Доступ к Codwe AI для этого аккаунта закрыт. Если вы считаете, что это ошибка, напишите тому, кто выдал вам программу.</p>
+      <div class="ban-btns"><button class="btn" id="auAgain">Проверить снова</button><button class="btn" id="auOut">Выйти из аккаунта</button></div></div>`, "lock-layer ban");
+    layer.querySelector("#auOut").onclick = async () => { await call("/api/auth/logout", "POST").catch(() => {}); lastKey = ""; refresh(); };
+    layer.querySelector("#auAgain").onclick = async () => { try { await call("/api/auth/recheck", "POST"); } catch { /* */ } lastKey = ""; busy = false; refresh(); };
   }
 
   function connectScreen(msg) {
@@ -169,13 +173,13 @@
     if (busy) return; busy = true;
     try {
       st = await call("/api/auth/state");
-      const key = [st.tampered, st.needs_connect, st.banned, st.logged_in, st.access_ok, st.tos_ok, st.email].join("|");
+      const key = [st.tampered, st.needs_connect, st.banned, st.ban_reason, st.logged_in, st.access_ok, st.tos_ok, st.email].join("|");
       adminButton();
       if (window.codweDevAllow) window.codweDevAllow(st.logged_in && st.access_ok && st.tos_ok && !st.tampered && !st.banned && (st.perms || []).includes("dev.console"));
       if (window.codweAuth && window.codweAuth.onState) window.codweAuth.onState(st);
       if (st.tampered) { if (key !== lastKey) lockScreen(st.tamper_reason); }
       else if (st.needs_connect) { if (key !== lastKey) connectScreen(); }
-      else if (st.banned) { if (key !== lastKey) bannedScreen(st.notice); }
+      else if (st.banned) { if (key !== lastKey) bannedScreen(st); }
       else if (!st.logged_in) { if (key !== lastKey) { loginScreen(linkErr || st.notice); linkErr = ""; } }
       else if (!st.access_ok) { if (key !== lastKey) accessScreen(); }
       else if (!st.tos_ok) { if (key !== lastKey) tosScreen(); }
@@ -185,6 +189,7 @@
     busy = false;
   }
   window.codweAuth = { refresh, state: () => st, admin: () => window.codweAdmin && window.codweAdmin.open(), call, esc };
+  if (!window.codweGuard) { lockScreen("Страж безопасности не загружен: страница изменена."); return; }  // без стража интерфейс не запускается
   takeLinkSession().then(refresh);
   setInterval(refresh, 20000);
 })();

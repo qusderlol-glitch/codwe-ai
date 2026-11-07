@@ -45,7 +45,13 @@ admin_router = APIRouter(prefix="/api/admin")
 GUARDED = ["server.py", "auth_api.py", "safety.py", "policy.enc", "safety.sig", "engine.py", "workspace_api.py",
            "codwecode_api.py", "zimage_engine.py", "klein_engine.py", "launcher.py", "dev_api.py", "devlog.py",
            "web/index.html", "web/app.js", "web/workspace.js", "web/auth.js", "web/account.js", "web/admin.js", "web/aurora.js",
-           "web/dev.js", "web/style.css"]
+           "web/dev.js", "web/style.css", "web/guard.js", "guard_api.py", "updater.py"]
+
+
+def guarded():
+    """Список защищаемых файлов + вся «зашифрованная» сборка интерфейса (web_dist), если она есть."""
+    extra = sorted(p.relative_to(HERE).as_posix() for p in (HERE / "web_dist").glob("*") if p.is_file()) if (HERE / "web_dist").is_dir() else []
+    return GUARDED + extra
 
 
 # ───────── целостность ─────────
@@ -57,7 +63,7 @@ def _sha(path):
 
 
 def build_manifest():
-    data = {f: _sha(HERE / f) for f in GUARDED}
+    data = {f: _sha(HERE / f) for f in guarded()}
     MANIFEST_FILE.write_text(json.dumps(data, indent=1), encoding="utf-8")
     return data
 
@@ -79,7 +85,7 @@ def integrity():
     if not exp:
         ok, reason = False, "Не найден файл проверки целостности (integrity.json)."
     else:
-        bad = [f for f in GUARDED if exp.get(f) != _sha(HERE / f)]
+        bad = [f for f in guarded() if exp.get(f) != _sha(HERE / f)]
         if bad:
             ok, reason = False, "Изменены файлы программы: " + ", ".join(bad[:4]) + ("…" if len(bad) > 4 else "")
     _integ.update(t=time.time(), ok=ok, reason=reason)
@@ -146,8 +152,52 @@ def _err(r, default):
 
 _L = threading.RLock()
 SESS = {}   # access, refresh, exp, uid, email, profile, profile_ts, ok_ts
+
+
+# Файлы с входом (токены) хранятся зашифрованными ключом вашей учётной записи Windows (DPAPI): скопированный файл
+# на другом компьютере или под другим пользователем Windows ничего не даст. Старые открытые файлы читаются и перезаписываются.
+_DP = b"DPAPI1:"
+
+
+def _dpapi(data, protect):
+    import ctypes
+    from ctypes import wintypes
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    src = BLOB(len(data), ctypes.cast(ctypes.create_string_buffer(data, len(data)), ctypes.POINTER(ctypes.c_char)))
+    out = BLOB()
+    fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
+    if not fn(ctypes.byref(src), None, None, None, None, 0, ctypes.byref(out)):
+        raise OSError("dpapi")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(out.pbData)
+
+
+def _write_secret(path, obj):
+    raw = json.dumps(obj).encode("utf-8")
+    if os.name == "nt":
+        try:
+            import base64
+            raw = _DP + base64.b64encode(_dpapi(raw, True))
+        except Exception:
+            pass  # без шифрования лучше, чем без входа
+    Path(path).write_bytes(raw)
+
+
+def _read_secret(path):
+    raw = Path(path).read_bytes()
+    if raw.startswith(_DP):
+        import base64
+        raw = _dpapi(base64.b64decode(raw[len(_DP):]), False)
+    return json.loads(raw.decode("utf-8"))
+
+
 try:
-    SESS.update(json.loads(SESSION_FILE.read_text(encoding="utf-8")))
+    SESS.update(_read_secret(SESSION_FILE))
 except Exception:
     pass
 
@@ -157,21 +207,21 @@ ACCOUNTS_FILE = HERE / "auth_accounts.json"
 
 def _acc_load():
     try:
-        return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8"))
+        return _read_secret(ACCOUNTS_FILE)
     except Exception:
         return {}
 
 
 def _acc_write(d):
     try:
-        ACCOUNTS_FILE.write_text(json.dumps(d), encoding="utf-8")
+        _write_secret(ACCOUNTS_FILE, d)
     except OSError:
         pass
 
 
 def _save():
     try:
-        SESSION_FILE.write_text(json.dumps(SESS), encoding="utf-8")
+        _write_secret(SESSION_FILE, SESS)
     except OSError:
         pass
     if SESS.get("email") and SESS.get("refresh"):  # запоминаем аккаунт для быстрого переключения
@@ -243,11 +293,15 @@ def perms_of(role):
 
 def my_perms():
     p = SESS.get("profile") or {}
+    if p.get("banned"):
+        return []
     return perms_of(p.get("role", "user")) if SESS.get("access") else []
 
 
 def my_level():
     p = SESS.get("profile") or {}
+    if p.get("banned"):
+        return 0
     return int(_rank_of(p.get("role", "user"))["level"]) if SESS.get("access") else 0
 
 
@@ -309,9 +363,8 @@ def _load_profile(force=False):
         pass  # нет связи: действует прошлое значение
     SESS.update(profile=p, profile_ts=time.time(), ok_ts=time.time())
     if p.get("banned"):
-        why = p.get("ban_reason") or "нарушение правил"
-        _clear("banned:" + why)
-        raise HTTPException(403, f"Аккаунт заблокирован: {why}.")
+        _save()  # вход разрешён, чтобы человек увидел причину; работать в программе он не сможет (см. gate)
+        return
     try:  # «я здесь»
         _sb("POST", "/rest/v1/rpc/touch_seen", SESS["access"], data="{}")
     except HTTPException:
@@ -354,7 +407,7 @@ def state():
     ok_i, why_i = integrity()
     out = {"required": required(), "configured": configured(), "dev": DEV, "tampered": not ok_i, "tamper_reason": why_i,
            "logged_in": False, "email": "", "role": "user", "tos_ok": False, "tos_version": TOS_VERSION,
-           "banned": False, "notice": "", "access_ok": False, "needs_connect": False,
+           "banned": False, "ban_reason": "", "notice": "", "access_ok": False, "needs_connect": False,
            "rank_name": "Пользователь", "rank_color": "#8d95aa", "level": 10, "perms": [], "legacy": False,
            "policy": {"blocked_models": [], "safety_soft": True}}
     if required() and not configured():
@@ -372,6 +425,10 @@ def state():
             p = SESS["profile"]
             rk = _rank_of(p.get("role", "user"))
             perms = my_perms()
+            if p.get("banned"):
+                out.update(logged_in=True, email=SESS.get("email", ""), banned=True, ban_reason=p.get("ban_reason") or "причина не указана",
+                           notice="ВЫ БЫЛИ ЗАБАНЕНЫ", rank_name="—", level=0, perms=[])
+                return out
             out.update(logged_in=True, email=SESS.get("email", ""), role=p.get("role", "user"),
                        rank_name=rk["name"], rank_color=rk.get("color", "#8d95aa"), level=int(rk["level"]), perms=perms,
                        legacy=_ranks["legacy"], policy=policy(),
@@ -380,7 +437,7 @@ def state():
         else:
             le = SESS.get("last_error", "")
             if le.startswith("banned:"):
-                out.update(banned=True, notice="Аккаунт заблокирован: " + le[7:] + ".")
+                out.update(banned=True, ban_reason=le[7:], notice="ВЫ БЫЛИ ЗАБАНЕНЫ")
             elif le:
                 out["notice"] = le
     return out
@@ -424,8 +481,34 @@ class VerifyReq(BaseModel):
     code: str = Field(min_length=6, max_length=10)
 
 
+def app_version():
+    try:
+        return int((HERE / "version.txt").read_text(encoding="utf-8").strip())
+    except Exception:
+        return 0
+
+
+@router.get("/whoami")
+def api_whoami():
+    """Лаунчер по этому ответу убеждается, что на порту именно Codwe AI, а не чужая программа."""
+    return {"app": "Codwe AI", "version": app_version()}
+
+
 @router.get("/state")
 def api_state():
+    return state()
+
+
+@router.post("/recheck")
+def api_recheck():
+    """Кнопка «Проверить снова» на экране бана: сразу спрашивает облако, не сняли ли блокировку."""
+    with _L:
+        if SESS.get("access"):
+            try:
+                _refresh_if_needed()
+                _load_profile(force=True)
+            except HTTPException:
+                pass
     return state()
 
 
@@ -462,7 +545,7 @@ def api_verify(req: VerifyReq):
     if r.status_code != 200:
         msg, _c = _err(r, "Неверный или устаревший код.")
         if r.status_code == 403 and "ban" in msg.lower():
-            raise HTTPException(403, "Аккаунт заблокирован.")
+            raise HTTPException(403, "Вход закрыт старой блокировкой облака. Обновите базу файлом supabase/ranks.sql.")
         raise HTTPException(400, "Неверный или устаревший код. Запросите новый.")
     with _L:
         _clear()

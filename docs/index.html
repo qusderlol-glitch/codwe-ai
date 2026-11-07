@@ -1,9 +1,11 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" translate="no">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
+<meta name="google" content="notranslate">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#060a09">
 <title>Codwe AI: свой ИИ на вашем компьютере</title>
 <meta name="description" content="Codwe AI: чат, помощник для кода, картинки, редактор фото и видео. Всё работает на вашем компьютере, ваши фото и запросы никто не видит.">
@@ -140,7 +142,7 @@ code{font-family:var(--mono);background:rgba(255,255,255,.07);padding:1px 7px;bo
 
 <header class="nav"><div class="wrap">
   <a class="brand" href="#top"><span class="logo"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></span>Codwe AI</a>
-  <nav class="links"><a href="#features">Возможности</a><a href="#demo">Как выглядит</a><a href="#privacy">Приватность</a><a href="#faq">Вопросы</a></nav>
+  <nav class="links"><a data-g href="#features">Возможности</a><a data-g href="#demo">Как выглядит</a><a data-g href="#privacy">Приватность</a><a data-g href="#faq">Вопросы</a></nav>
   <div class="sp"></div>
   <div id="acct" style="position:relative"></div>
 </div></header>
@@ -150,7 +152,7 @@ code{font-family:var(--mono);background:rgba(255,255,255,.07);padding:1px 7px;bo
   <div class="hero">
     <div class="reveal in">
       <div class="badge"><b>Бесплатно</b> Работает у вас дома, без подписок</div>
-      <h1>Свой ИИ<br><span class="gt">на вашем компьютере</span></h1>
+      <h1 data-g>Свой ИИ<br><span class="gt">на вашем компьютере</span></h1>
       <p class="lead">Умный чат, помощник для кода, фотореалистичные картинки, редактор и видео. Всё на вашей видеокарте. Фото и запросы видите только вы.</p>
       <div class="cta">
         <button class="btn pri big" data-dl>⬇ Скачать бесплатно</button>
@@ -244,7 +246,7 @@ code{font-family:var(--mono);background:rgba(255,255,255,.07);padding:1px 7px;bo
 </main>
 
 <footer><div class="wrap">
-  <div>Codwe AI · © 2026 Cowde · лицензия MIT на программу. У моделей ИИ свои лицензии, некоммерческие модели нельзя использовать в коммерческих целях.</div>
+  <div data-g>Codwe AI · © 2026 Cowde · лицензия MIT на программу. У моделей ИИ свои лицензии, некоммерческие модели нельзя использовать в коммерческих целях.</div>
   <div style="margin-top:8px"><a href="https://github.com/qusderlol-glitch/codwe-ai">Исходный код на GitHub</a></div>
 </div></footer>
 
@@ -253,8 +255,9 @@ code{font-family:var(--mono);background:rgba(255,255,255,.07);padding:1px 7px;bo
 <!-- панель сотрудника -->
 <div class="sheet" id="sheet"><div class="wrap" id="sheetBody"></div></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" integrity="sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug" crossorigin="anonymous"></script>
 <script src="config.js"></script>
+<script src="guard.js"></script>
 <script>
 (() => {
 "use strict";
@@ -364,7 +367,7 @@ function render() {
   }
   const st = $("#dlState");
   if (!me) st.innerHTML = `<p style="color:var(--mut);margin:0 0 6px;font-size:17px">Чтобы скачать, зарегистрируйтесь: это бесплатно и занимает минуту.</p><button class="btn pri big" data-dl>Зарегистрироваться и скачать</button><div class="note">Нужна только почта. Пароль придумывать не нужно.</div>`;
-  else if (profile && profile.banned) st.innerHTML = `<div class="err" style="margin:0">Аккаунт заблокирован${profile.ban_reason ? ": " + esc(profile.ban_reason) : ""}. Скачивание недоступно.</div>`;
+  else if (profile && profile.banned) st.innerHTML = `<div class="err" style="margin:0"><b style="font-size:20px;letter-spacing:.5px">ВЫ БЫЛИ ЗАБАНЕНЫ</b><br>Причина: ${esc(profile.ban_reason || "не указана")}. Скачивание недоступно.</div>`;
   else st.innerHTML = `<p style="color:var(--mut);margin:0 0 6px;font-size:17px">Вы вошли как <b style="color:var(--text)">${esc(me.email)}</b>. Всё готово к скачиванию.</p><button class="btn pri big" data-dl>⬇ Скачать Codwe AI</button>
     <div class="note">Архив около 3 МБ. Модели ИИ установщик скачает сам.</div>
     <div class="warnbox">Если Windows пишет «Интеллектуальное управление приложениями заблокировало файл», это защита Windows 11 для программ без платной подписи. Подробности в разделе вопросов ниже.</div>`;
