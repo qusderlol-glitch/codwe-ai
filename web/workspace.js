@@ -280,6 +280,7 @@ function renderTabs() {
 }
 $("#codeTabs").onclick = (e) => { const x = e.target.closest("[data-tx]"); if (x) { e.stopPropagation(); closeFile(x.dataset.tx); return; } const t = e.target.closest("[data-tab]"); if (t) activate(t.dataset.tab); };
 async function openFile(path) {
+  setPage("code");
   if (!cw.files[path]) {
     try { const r = await api("/api/ws/file?path=" + encodeURIComponent(path)); cw.files[path] = { content: r.content, dirty: false }; }
     catch (e) { return toast(e.message, "error"); }
@@ -314,7 +315,28 @@ async function saveActive() {
 }
 
 // нижняя панель
-function setCb(v) { $$(".cb-tabs [data-cb]").forEach((b) => b.classList.toggle("active", b.dataset.cb === v)); $("#cbTerm").hidden = v !== "term"; $("#cbPreview").hidden = v !== "preview"; }
+// Страницы Codwecode: «Код» (редактор + терминал) и «Предпросмотр» (во всю область)
+function setPage(p) {
+  const pv = p === "preview";
+  $$("#ccPages [data-pg]").forEach((b) => b.classList.toggle("active", b.dataset.pg === p));
+  $("#codeTabs").hidden = pv; $("#codeEditorBox").hidden = pv; $("#codeBottom").hidden = pv; $("#pvPage").hidden = !pv;
+}
+function setCb(v) {
+  if (v === "preview") { setPage("preview"); return; }
+  setPage("code");
+  $$(".cb-tabs [data-cb]").forEach((b) => b.classList.toggle("active", b.dataset.cb === v)); $("#cbTerm").hidden = v !== "term";
+}
+$("#ccPages").onclick = (e) => {
+  const b = e.target.closest("[data-pg]"); if (!b) return;
+  setPage(b.dataset.pg);
+  if (b.dataset.pg === "preview") {
+    if (!$("#pvPath").value.trim()) {
+      const f = (cw.tree[cw.cwd] || []).filter((i) => i.type === "file" && /\.html?$/i.test(i.name));
+      $("#pvPath").value = (f.find((i) => i.name === "index.html") || f[0] || {}).name || "index.html";
+    }
+    pvLoad();
+  }
+};
 $(".cb-tabs").onclick = (e) => { const b = e.target.closest("[data-cb]"); if (b) setCb(b.dataset.cb); };
 function pvLoad() {
   const f = $("#pvPath").value.trim() || "index.html";
@@ -384,14 +406,32 @@ const ca = { messages: store.get("codwe.code.chat", []), busy: false, stop: fals
   opts: Object.assign({ agent: true, net: true }, store.get("codwe.cc.opts", {})) };
 const CC_EXT = new Set(["html", "htm", "css", "js", "mjs", "json", "md", "txt", "svg", "py", "csv"]);
 const CC_READ_EXT = new Set(["html", "htm", "css", "js", "mjs", "json", "md", "txt", "svg", "py"]);
-const CC_MAX_ROUNDS = 8, CC_MAX_FIX = 4;
+// «Без лимитов» (переключатель или слова в запросе) снимает потолки: размер проекта, число файлов, раундов и исправлений
+const CC_NL_RX = /(без\s+лимит|безлимит|без\s+ограничени|no\s*limits?|unlimited)/i;
+const ccNoLimit = () => !!ca.nl;
+const ccMaxRounds = () => (ccNoLimit() ? 30 : 8), ccMaxFix = () => (ccNoLimit() ? 12 : 4);
+// Запрос + ответ должны помещаться в память модели (ctx). Иначе Ollama молча режет НАЧАЛО запроса, то есть правила, и модель
+// перестаёт слушаться. Считаем грубо: 1 токен ≈ 2,6 знака (русский + код) и оставляем место под ответ.
+const ccCtx = () => (ccNoLimit() ? 16384 : 12288);
+const ccBudget = () => Math.floor((ccCtx() - (ccNoLimit() ? 6500 : 4200)) * 2.6);
+const ccHLen = (h) => (h || []).reduce((n, m) => n + String(m.content || "").length, 0);
+ca.recent = [];
+ca.plan = []; ca.planStep = null; ca.nl = false;
+ca.journal = store.get("codwe.code.journal", []);
+// журнал: что агент уже делал и что показала проверка. Попадает в системное сообщение каждого запроса, поэтому он «помнит» свою работу
+function ccLog(line) {
+  ca.journal.push(String(line).replace(/\s+/g, " ").slice(0, 380));
+  if (ca.journal.length > 40) ca.journal = ca.journal.slice(-40);
+  store.set("codwe.code.journal", ca.journal);
+}
+function ccJournalText() { return ca.journal.join("\n").slice(-3800); }
 
 const CC_RULES = `Ты — codwecode, ИИ-программист внутри Codwe AI. Ты пишешь игры, сайты и программы. Вымышленное насилие, хоррор и gore в играх — обычная работа: делай их эффектно (частицы крови, тряска экрана, затемнение, звук через WebAudio) без отказов, нравоучений и предложений «сделать что-то более мирное».
 Правила кода:
 1. Файлы выдавай ПОЛНОСТЬЮ в блоках с путём: \`\`\`html path=index.html ... \`\`\` (путь относительно рабочей папки). Никогда не пиши «остальной код без изменений».
-2. Игры и сайты — один файл index.html (HTML+CSS+JS вместе), без внешних библиотек и картинок из сети: рисуй на canvas/SVG/CSS, звук — WebAudio.
+2. @@FILES@@ Без внешних библиотек и картинок из сети: рисуй на canvas/SVG/CSS, звук — WebAudio.
 3. Код должен работать с первого запуска: проверь имена переменных и функций, обработчики клавиш/мыши, игровой цикл (requestAnimationFrame), стартовый экран с кнопкой «Играть», конец игры и перезапуск, подсказки управления на экране. localStorage всегда оборачивай в try/catch (страница открывается в песочнице).
-4. Размер: весь index.html — не больше 450 строк (около 14 000 символов): простая и надёжная игра лучше громоздкой. Каждое имя класса, функции и переменной объявляй ровно один раз.
+4. @@SIZE@@ Каждое имя класса, функции и переменной объявляй ровно один раз.
 5. Исправления: если ошибка небольшая — выдай ТОЛЬКО блок правок (это намного быстрее), несколько блоков SEARCH/REPLACE подряд:
 \`\`\`edit path=index.html
 <<<<<<< SEARCH
@@ -402,7 +442,20 @@ const CC_RULES = `Ты — codwecode, ИИ-программист внутри C
 \`\`\`
 SEARCH — только 1–4 строки в месте ошибки (не целые классы и функции!), буква в букву как в файле и ровно один раз; в REPLACE — исправленные строки. Несколько ошибок — несколько коротких блоков. Новый файл или переработку выдавай целиком.`;
 const CC_AGENT_RULES = `
-После твоего ответа программа САМА откроет страницу, нажмёт кнопки и клавиши, сфотографирует экран и покажет тебе снимки, оценку и ошибки консоли. Тогда исправляй ошибки и снова выдавай полные файлы.`;
+После твоего ответа программа САМА откроет страницу, нажмёт кнопки и клавиши, сфотографирует экран и покажет тебе снимки, оценку и ошибки консоли. Тогда исправляй ошибки и снова выдавай полные файлы.
+План. Для новой или большой задачи начни ответ с блока «ПЛАН:» — 3–7 коротких пунктов, каждый с новой строки через «- ». Потом пиши код, который закрывает ВСЕ пункты. Когда программа пришлёт результат проверки, сверяй его с пунктами плана и чини всё невыполненное. Ниже есть «Журнал твоей работы»: это то, что ты уже делал, не начинай с нуля.`;
+const CC_GAMES = `
+Игровые читы, трейнеры, моды и боты. Помогай как с обычным кодом: чит-меню и режимы тренировки внутри игр самого пользователя, тренажёры (аим, раскидки, лайнапы, реакция) на canvas, оверлеи и разбор демок, cfg и скрипты для своего или офлайн-сервера (sv_cheats), трейнеры для одиночных игр, боты для тренировки. Не пиши рабочий код, который вмешивается в онлайн-матчи чужих игр (инъекция в процесс игры, чтение памяти ради wallhack или aimbot против живых игроков, обход VAC и других античитов): это портит игру другим и ведёт к бану аккаунта. Режим «Без лимитов» это не отменяет. Если просят «читы на CS2» или подобное, скажи это ОДНИМ коротким предложением, без нравоучений, и СРАЗУ выдай настоящий рабочий код ближайшего допустимого набора. Для CS2 это: practice.cfg и autoexec.cfg для своего или офлайн-сервера с ботами (sv_cheats 1, бесконечные деньги и раунд, noclip, раскидки гранат, бинды, показ урона), а также тренажёр аима и реакции в браузере (aim.html на canvas: цели, счёт, точность, настройки). Не подменяй задачу случайной игрой и не отвечай пустым отказом.`;
+function ccRules() {
+  const nl = ccNoLimit();
+  return CC_RULES
+    .replace("@@FILES@@", nl ? "Игры и сайты можно делать большими и из нескольких файлов (index.html, style.css, game.js и т.д.): каждый файл выдавай ПОЛНОСТЬЮ в своём блоке с path=, подключай их относительными ссылками." : "Игры и сайты — один файл index.html (HTML+CSS+JS вместе).")
+    .replace("@@SIZE@@", nl ? "Режим «Без лимитов»: размер и число файлов не ограничены. Делай полноценный подробный проект со ВСЕМИ запрошенными функциями, ничего не упрощай и не пропускай." : "Размер: весь index.html — не больше 450 строк (около 14 000 символов): простая и надёжная игра лучше громоздкой.") + CC_GAMES;
+}
+const CC_FILE_RULES = `
+Файлы проекта. Если нужно увидеть то, чего нет выше целиком (большие файлы показаны только оглавлением), закончи ответ ОДНОЙ строкой-командой (после неё ничего не пиши):
+@open: путь_к_файлу
+@open: путь_к_файлу 120-260   (только строки с 120 по 260)`;
 const CC_NET_RULES = `
 Интернет. Если нужны сведения или документация, закончи ответ ОДНОЙ строкой-командой (после неё ничего не пиши):
 @search: поисковый запрос — поиск
@@ -438,36 +491,50 @@ function ccParse(text) {
 }
 function ccTools(text) {
   const plain = text.replace(/```[\s\S]*?(```|$)/g, ""), out = []; let m;
-  const re = /^\s*@(search|read|see)\s*:\s*(.+?)\s*$/gim;
+  const re = /^\s*@(search|read|see|open)\s*:\s*(.+?)\s*$/gim;
   while ((m = re.exec(plain)) && out.length < 2) out.push({ kind: m[1].toLowerCase(), arg: m[2].replace(/^["'«]|["'»]$/g, "") });
   return out;
 }
-const ccBrief = (t) => t.replace(/```[\s\S]*?(```|$)/g, "[код записан в файл]").replace(/^\s*@(search|read|see)\s*:.*$/gim, "").trim().slice(0, 500) || "(код записан в файлы)";
+const ccBrief = (t) => t.replace(/```[\s\S]*?(```|$)/g, "[код записан в файл]").replace(/^\s*@(search|read|see|open)\s*:.*$/gim, "").trim().slice(0, 500) || "(код записан в файлы)";
 
-async function ccProjectText() {
-  let out = "";
+// краткий «оглавление» большого файла: объявления функций, классов, селекторов, id. Модель видит структуру и может открыть нужный кусок через @open
+function ccOutline(name, c) {
+  const ext = (name.split(".").pop() || "").toLowerCase(), out = [];
+  const lines = c.split("\n");
+  const rx = ext === "css" ? /^[.#@a-zA-Z\[:*][^{}]*\{\s*$/ : ext === "html" || ext === "htm" ? /<(?:section|header|footer|nav|main|canvas|form|script|link|template)\b|\bid=["'][^"']+["']/i
+    : /^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+[\w$]+|class\s+[\w$]+)|^\s*(?:const|let|var)\s+[\w$]+\s*=\s*(?:async\s*)?(?:\([^)]*\)\s*=>|function|class\b)|^\s{0,4}(?:async\s+)?[\w$]+\s*\([^)]*\)\s*\{\s*$/;
+  for (let i = 0; i < lines.length && out.length < 60; i++) if (rx.test(lines[i])) out.push(`${i + 1}: ${lines[i].trim().slice(0, 110)}`);
+  return out.join("\n");
+}
+function ccHead(i) { return `${i.name} (${i.size >= 1000 ? Math.round(i.size / 1000) + " КБ" : i.size + " Б"})`; }
+async function ccProjectText(limit = 30000) {
+  let out = "", used = 0;
   try {
-    const items = (cw.tree[cw.cwd] || []).filter((i) => i.type === "file" && CC_READ_EXT.has((i.name.split(".").pop() || "").toLowerCase()) && i.size < 90000).slice(0, 6);
-    if (cw.active) { const act = cw.active.split("/").pop(); items.sort((a, b) => (b.name === act) - (a.name === act)); }
-    let used = 0;
+    const items = (cw.tree[cw.cwd] || []).filter((i) => i.type === "file" && CC_READ_EXT.has((i.name.split(".").pop() || "").toLowerCase())).slice(0, 14);
+    const rank = (n) => (cw.active && n === cw.active.split("/").pop() ? -2 : 0) + (ca.recent.includes(n) ? -1 : 0);
+    items.sort((a, b) => rank(a.name) - rank(b.name));
     for (const it of items) {
       const p = (cw.cwd + "/" + it.name).replace(/\/+/g, "/");
       let c = cw.files[p] ? (p === cw.active ? $("#codeEditor").value : cw.files[p].content) : null;
       if (c === null) { try { c = (await api("/api/ws/file?path=" + encodeURIComponent(p))).content; } catch { continue; } }
-      if (used + c.length > 30000) continue;
-      used += c.length; out += `\n--- ${it.name} ---\n${c}\n`;
+      if (used + c.length <= limit) { used += c.length; out += `\n--- ${it.name} ---\n${c}\n`; continue; }
+      const o = ccOutline(it.name, c).slice(0, Math.max(0, Math.min(2600, limit - used)));
+      if (o.length > 120) { used += o.length; out += `\n--- ${it.name}: файл большой (${c.split("\n").length} строк), показано оглавление; нужный кусок открой командой @open ---\n${o}\n`; }
     }
   } catch { /* */ }
   return out;
 }
-async function ccSystem() {
-  let s = CC_RULES + (ca.opts.agent ? CC_AGENT_RULES : "") + (ca.opts.net ? CC_NET_RULES : "");
-  const names = (cw.tree[cw.cwd] || []).map((i) => (i.type === "dir" ? i.name + "/" : i.name)).join(", ") || "(пусто)";
+async function ccSystem(reserve = 0) {
+  let s = ccRules() + (ca.opts.agent ? CC_AGENT_RULES + CC_FILE_RULES : "") + (ca.opts.net ? CC_NET_RULES : "");
+  const names = (cw.tree[cw.cwd] || []).map((i) => (i.type === "dir" ? i.name + "/" : ccHead(i))).join(", ") || "(пусто)";
   s += `\n\nРабочая папка: workspace/${cw.cwd}. Файлы: ${names}.`;
-  const proj = await ccProjectText();
-  if (proj) s += `\nТекущее содержимое файлов (редактируй именно их, выдавая полные новые версии):${proj}`;
+  const jr = ccJournalText();
+  if (jr) s += "\nЖурнал твоей работы (самое новое внизу):\n" + jr.slice(-(ccNoLimit() ? 3800 : 2600));
+  if (ca.plan.length) s += "\nТекущий план:\n" + ca.plan.map((p) => (p.done ? "[x] " : "[ ] ") + p.t).join("\n");
   s += "\nОтвечай по-русски, коротко: 1–3 предложения до кода и после.";
-  return s.slice(0, 58000);
+  const room = ccBudget() - s.length - 160 - reserve;
+  if (room > 1500) { const proj = await ccProjectText(room); if (proj) s += `\nТекущее содержимое файлов (редактируй именно их):${proj}`; }
+  return s.slice(0, Math.max(6000, ccBudget() - reserve));
 }
 
 function stepHtml(m) {
@@ -503,7 +570,7 @@ function ccBadEdit(t) {
 async function ccStream(system, messages, effort, a, guard = false) {
   ca.ctl = new AbortController(); a.guard = false;
   const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-Codwe": "1" }, signal: ca.ctl.signal,
-    body: JSON.stringify({ model: codeModel(), system, messages, temperature: 0.5, effort, ctx: 12288 }) });
+    body: JSON.stringify({ model: codeModel(), system, messages, temperature: 0.5, effort, ctx: ccCtx() }) });
   if (!res.ok) { let m = res.statusText; try { m = (await res.json()).detail || m; } catch { /* */ } throw new Error(m); }
   const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "", last = 0, text = "", think = 0;
   try {
@@ -527,6 +594,20 @@ function ccStep(title, state = "run", extra = {}) {
 }
 function ccSet(m, patch) { Object.assign(m, patch); renderCa(); }
 
+function ccPlanFrom(text) {
+  const m = /(?:^|\n)\s*(?:\*\*)?ПЛАН(?:\*\*)?\s*:?\s*(?:\*\*)?\s*\n((?:[ \t]*(?:[-*•]|\d+[.)])[^\n]*\n?)+)/i.exec(text.replace(/```[\s\S]*?(```|$)/g, ""));
+  if (!m) return;
+  const items = m[1].split("\n").map((l) => l.replace(/^[ \t]*(?:[-*•]|\d+[.)])\s*(?:\[[ xх]?\]\s*)?/i, "").trim()).filter(Boolean).slice(0, 10);
+  if (!items.length) return;
+  ca.plan = items.map((t) => ({ t, done: false }));
+  ca.planStep = ccStep("📋 План", "ok", { text: items.map((t) => "☐ " + t).join("\n") });
+  ccLog("План: " + items.join("; "));
+}
+function ccPlanMark(allDone) {
+  if (!ca.plan.length) return;
+  ca.plan.forEach((p) => { p.done = allDone; });
+  if (ca.planStep) ccSet(ca.planStep, { state: allDone ? "ok" : "bad", title: allDone ? "📋 План выполнен ✔" : "📋 План: что-то ещё не выполнено", text: ca.plan.map((p) => (allDone ? "☑ " : "☐ ") + p.t).join("\n") });
+}
 async function ccApply(edits, saved, errs) {
   for (const e of edits) {
     const rel = ccRel(e.path);
@@ -580,7 +661,7 @@ async function ccCheck(entry, task) {
   let look;
   try {
     look = await ccPost("/api/cc/look", { shots: shot.shots.slice(0, 5), logs: shot.logs.join("\n"),
-      question: `Задача пользователя: «${task.slice(0, 600)}». Снимки идут по порядку: 1 — сразу после запуска, дальше — после действий проверки (${(shot.acts || []).join(", ") || "нажатия"}; клавиши Enter, Space, стрелки, WASD, E; клики мышью). Оцени: открывается ли игра/страница, видно ли интерфейс и объекты, реагирует ли на управление, нет ли пустого или чёрного экрана. Выпиши ключевые требования из задачи и для каждого напиши: «видно», «не видно» или «нельзя проверить по снимкам». Если главная механика или визуал из задачи (например кровь/gore, выбор «человек или аномалия», кнопки решений) на снимках не видны — вердикт BUG и перечисли, чего не хватает.` });
+      question: `Задача пользователя: «${task.slice(0, 600)}». Снимки идут по порядку: 1 — сразу после запуска, дальше — после действий проверки (${(shot.acts || []).join(", ") || "нажатия"}; клавиши Enter, Space, стрелки, WASD, E; клики мышью). Оцени: открывается ли игра/страница, видно ли интерфейс и объекты, реагирует ли на управление, нет ли пустого или чёрного экрана. Выпиши ключевые требования из задачи и для каждого напиши: «видно», «не видно» или «нельзя проверить по снимкам». Если главная механика или визуал из задачи (например кровь/gore, выбор «человек или аномалия», кнопки решений) на снимках не видны — вердикт BUG и перечисли, чего не хватает.` + (ca.plan.length ? ` План работы, проверь КАЖДЫЙ пункт по снимкам и напиши «выполнено» или «не выполнено»: ${ca.plan.map((p, i) => (i + 1) + ") " + p.t).join("; ")}.` : "") + ` Если это сайт: проверь шапку, разделы, тексты, кнопки и ссылки, нет ли пустых или наползающих блоков.` });
   } catch (e) { ccSet(lk, { state: "bad", title: "Не удалось посмотреть снимки", text: e.message }); look = { verdict: severe.length ? "BUG" : "OK", text: "(зрение недоступно: " + e.message + ")" }; }
   const ok = look.verdict === "OK" && !severe.length;
   if (lk.title.startsWith("Смотрю")) ccSet(lk, { state: ok ? "ok" : "bad", title: ok ? "Вердикт: всё работает" : "Вердикт: найдены проблемы", text: look.text });
@@ -595,10 +676,25 @@ async function ccCheck(entry, task) {
       if (seen.size >= 3) break;
     }
   } catch { /* */ }
+  ccLog(`Проверка ${entry}: ${ok ? "всё работает" : "проблемы: " + (severe[0] || look.text || "").slice(0, 160)}. По снимкам: ${(look.text || "").slice(0, 220)}`);
+  ccPlanMark(ok);
   const report = `Автопроверка страницы ${entry} (ошибки консоли — это факты, оценка по снимкам — мнение модели). Действия проверки: ${(shot.acts || []).join(", ") || "клавиши и клики"}.\nКонсоль:\n${shot.logs.join("\n") || "ошибок нет"}\n${around}По снимкам: ${look.text}`;
   return { ok, report };
 }
 async function ccTool(t) {
+  if (t.kind === "open") {
+    const m = /^(.*?)(?:\s+(\d+)\s*[-–]\s*(\d+))?$/.exec(t.arg.trim()), rel = ccRel(m[1].replace(/^["'`]|["'`]$/g, ""));
+    const st = ccStep(`📂 Открываю файл: ${m[1]}`, "run");
+    if (!rel) { ccSet(st, { state: "bad", title: "Такой файл открыть нельзя", text: m[1] }); return "Файл " + m[1] + " открыть нельзя (неверный путь или тип). Продолжай."; }
+    try {
+      const c = (await api("/api/ws/file?path=" + encodeURIComponent((cw.cwd + "/" + rel).replace(/\/+/g, "/")))).content, ls = c.split("\n");
+      const a = m[2] ? Math.max(1, +m[2]) : 1, b = m[3] ? Math.min(ls.length, Math.max(a, +m[3])) : Math.min(ls.length, a + 199);
+      const body = ls.slice(a - 1, b).map((x, i) => `${a + i}: ${x}`).join("\n").slice(0, 9000);
+      ccSet(st, { state: "ok", title: `📂 ${rel}: строки ${a}–${b} из ${ls.length}` });
+      ccLog(`Открыл ${rel} (строки ${a}-${b} из ${ls.length})`);
+      return `Файл ${rel}, строки ${a}–${b} из ${ls.length} (номера слева не часть кода):\n${body}\nПродолжай задачу. Правки вноси блоками edit (SEARCH — точные строки БЕЗ номеров).`;
+    } catch (e) { ccSet(st, { state: "bad", title: "Не удалось открыть файл", text: e.message }); return "Файл не открылся: " + e.message + ". Продолжай."; }
+  }
   if (t.kind === "search") {
     const st = ccStep(`🌐 Ищу в интернете: ${t.arg}`, "run");
     try {
@@ -619,10 +715,73 @@ async function ccTool(t) {
   } catch (e) { ccSet(st, { state: "bad", title: "Не удалось открыть страницу", text: e.message }); return "Страницу открыть не удалось: " + e.message + ". Продолжай без неё."; }
 }
 
+// ───── «Без лимитов»: большой проект собирается по частям ─────
+// Ответ модели ограничен её памятью (ctx), поэтому большой проект за один ответ не помещается и обрывается. Здесь он делается так:
+// план и список файлов, потом каждый файл отдельным запросом, а оборванный файл дописывается по хвосту, пока не закончится.
+function ccJoin(a, b) {
+  const al = a.split("\n"), bl = b.split("\n"), last = al[al.length - 1].trim();
+  if (last.length > 3 && bl[0].trim().startsWith(last)) return al.slice(0, -1).concat(bl).join("\n");   // оборвалось на полуслове, модель повторила строку целиком
+  for (let n = Math.min(12, al.length, bl.length); n > 0; n--) if (al.slice(-n).join("\n") === bl.slice(0, n).join("\n")) return al.concat(bl.slice(n)).join("\n");
+  return a + "\n" + b;
+}
+async function ccMore(sys, name, partial) {
+  let content = partial, cut = true;
+  const lang = (name.split(".").pop() || "txt").toLowerCase();
+  for (let k = 0; cut && k < 10 && !ca.stop; k++) {
+    const b = { role: "assistant", content: "", status: `Дописываю ${name} (часть ${k + 2})…` }; ca.messages.push(b); renderCa();
+    const tail = content.split("\n").slice(-25).join("\n");
+    const q = `Файл ${name} оборвался на середине: закончилась память ответа. Вот его последние строки:\n\`\`\`\n${tail}\n\`\`\`\nПродолжи С ТОГО ЖЕ МЕСТА. Первая строка продолжения должна ПОЛНОСТЬЮ повторять последнюю строку выше (она могла оборваться на полуслове), дальше пиши новый код. Выдай только продолжение, одним блоком \`\`\`${lang} path=${name}, до самого конца файла (закрой все скобки и теги).`;
+    const t = await ccStream(sys, [{ role: "user", content: q }], 10, b);
+    const f = ccParse(t).files[0];
+    b.content = "(файл дописан)";
+    if (!f || !f.content.trim()) { cut = false; break; }
+    content = ccJoin(content, f.content); cut = f.cut;
+    ccLog(`Дописал ${name}: теперь ${content.split("\n").length} строк${cut ? ", ещё не конец" : ""}`);
+  }
+  return { content, cut };
+}
+async function ccBuild(task, history) {
+  const a = { role: "assistant", content: "", status: "Составляю план и список файлов…" }; ca.messages.push(a); renderCa();
+  const ask = history[0].content + "\n\nСейчас НЕ пиши код. Ответь так: блок «ПЛАН:» (4–10 пунктов, каждый с «- »), потом ОДНА строка «ФАЙЛЫ: имя1, имя2, ...» — все файлы проекта (index.html, style.css, app.js и другие нужные, без папок). Код я попрошу по одному файлу.";
+  const text = await ccStream(await ccSystem(ask.length), [{ role: "user", content: ask }], 10, a);
+  const m = /ФАЙЛЫ\s*:\s*([^\n]+)/i.exec(text.replace(/```[\s\S]*?(```|$)/g, ""));
+  let names = [];
+  if (m) for (const raw of m[1].split(/[,;]/)) { const rel = ccRel(raw.trim().replace(/[`*"'«»]/g, "").replace(/[.\s]+$/, "")); if (rel && !names.includes(rel)) names.push(rel); }
+  names = names.slice(0, 30);
+  if (!names.length) { a.content = ccBrief(text) || text; return null; }
+  ccPlanFrom(text);
+  a.content = ccBrief(text);
+  const ord = (n) => (/\.html?$/i.test(n) ? 0 : /\.css$/i.test(n) ? 1 : /\.m?js$/i.test(n) ? 2 : 3);
+  names.sort((x, y) => ord(x) - ord(y));
+  ccLog("Файлы проекта: " + names.join(", "));
+  ccStep("📁 Файлы проекта: " + names.join(", "), "ok");
+  let entry = null, any = false;
+  for (let i = 0; i < names.length && !ca.stop; i++) {
+    const name = names[i], lang = (name.split(".").pop() || "txt").toLowerCase();
+    const st = ccStep(`📄 Файл ${i + 1} из ${names.length}: ${name}`, "run");
+    const b = { role: "assistant", content: "", status: `Пишу ${name}…` }; ca.messages.push(b); renderCa();
+    const q = `Задача: ${task}\n\nНапиши ТОЛЬКО файл ${name} (${i + 1} из ${names.length}) ПОЛНОСТЬЮ одним блоком \`\`\`${lang} path=${name}. Все файлы проекта: ${names.join(", ")}. Файл должен быть подробным и законченным по плану. Имена id, классов, функций и переменных бери из уже записанных файлов (они показаны выше) и держи их согласованными. Другие файлы не пиши.`;
+    const sys = await ccSystem(q.length);
+    const t = await ccStream(sys, [{ role: "user", content: q }], 10, b);
+    const f = ccParse(t).files.find((x) => ccRel(x.path) === name) || ccParse(t).files[0];
+    b.content = ccBrief(t);
+    if (!f) { ccSet(st, { state: "bad", title: `📄 ${name}: модель не выдала код` }); ccLog(`Файл ${name}: модель не выдала код`); continue; }
+    let content = f.content, cut = f.cut;
+    if (cut) ({ content, cut } = await ccMore(sys, name, content));
+    const res = await ccSave([{ path: name, content, cut: false }], []);
+    if (res.saved.length) { any = true; ca.recent.push(name); if (!entry && /\.html?$/i.test(name)) entry = name; }
+    ccSet(st, { state: res.errs.length || cut ? "bad" : "ok", title: `📄 ${name}: ${res.saved.length ? content.split("\n").length + " строк записано" : "не записан"}${cut ? " (оборван)" : ""}`, text: res.errs.join("\n") });
+    ccLog(`Файл ${name}: ${res.saved.length ? content.split("\n").length + " строк" : "не записан"}${cut ? ", оборван" : ""}`);
+  }
+  return any ? { entry } : null;
+}
+
 async function ccAgent(task) {
   const prev = ca.messages.filter((m) => m.role === "user").slice(-4, -1).map((m) => "— " + m.content.slice(0, 300)).join("\n");
   const history = [{ role: "user", content: (prev ? `Раньше я просил:\n${prev}\n\nСейчас:\n` : "") + task }];
   let fixes = 0, wrote = false, lastEntry = null;
+  ca.plan = []; ca.planStep = null;
+  ccLog("Задача: " + task.slice(0, 300) + (ccNoLimit() ? " (режим «Без лимитов»)" : ""));
   // «проверь / запусти / исправь» про уже существующую страницу: сначала настоящий запуск, а не слова модели
   if (ca.opts.agent && /(провер|запуст|исправ|ошибк|баг|почин|не работает|открой|сфотограф|протестир)/i.test(task)) {
     const files = (cw.tree[cw.cwd] || []).filter((i) => i.type === "file" && /\.html?$/i.test(i.name));
@@ -633,50 +792,73 @@ async function ccAgent(task) {
       history[0].content += "\n\nПрограмма уже сама запустила страницу " + ent + " и проверила её (это факты, а не предположения):\n" + chk.report + (chk.ok ? "\nПроверка ошибок не нашла." : "\nИсправь найденные проблемы.");
     }
   }
-  for (let round = 0; round < CC_MAX_ROUNDS && !ca.stop; round++) {
-    const a = { role: "assistant", content: "", status: round ? "Исправляю…" : "Пишу код…" }; ca.messages.push(a); renderCa();
-    const text = await ccStream(await ccSystem(), history, round ? 45 : 10, a, round > 0);
+  // «Без лимитов» + новый проект: собираем по файлам, потом обычная проверка и исправления
+  let built = false;
+  if (ca.nl && ca.opts.agent && !ca.stop && !/(провер|запуст|исправ|ошибк|баг|почин|не работает|открой|сфотограф|протестир)/i.test(task)) {
+    const r = await ccBuild(task, history);
+    if (r) { built = true; wrote = true; lastEntry = r.entry || lastEntry; }
+  }
+  for (let round = 0; round < ccMaxRounds() && !ca.stop; round++) {
+    if (built) {
+      built = false;
+      if (!lastEntry) break;
+      const chk = await ccCheck(lastEntry, task);
+      if (chk.ok) { ccStep("Проверка пройдена: страница открывается, консоль чистая, управление работает ✔", "ok"); break; }
+      fixes++;
+      history.push({ role: "user", content: chk.report + "\n\nИсправь найденные проблемы. Небольшие исправления выдавай блоками edit (SEARCH/REPLACE, как в правилах), файл целиком выдавай только если он маленький." });
+    }
+    const a = { role: "assistant", content: "", status: round || fixes ? "Исправляю…" : "Пишу код…" }; ca.messages.push(a); renderCa();
+    const sysText = await ccSystem(ccHLen(history));
+    const text = await ccStream(sysText, history, round || fixes ? 45 : 10, a, round > 0 || fixes > 0);
     history.push({ role: "assistant", content: ccBrief(text) });
+    if (!ca.plan.length) ccPlanFrom(text);
     if (a.guard) {
       a.content = "(модель начала копировать весь файл в блок правок — прервано, прошу файл целиком)";
-      history.push({ role: "user", content: "Блок SEARCH получился слишком длинным. Не копируй файл. Выдай ЦЕЛИКОМ исправленный index.html в блоке ```html path=index.html (не больше 350 строк), учтя всё, что нашла проверка." });
+      history.push({ role: "user", content: "Блок SEARCH получился слишком длинным. Не копируй файл. Выдай ЦЕЛИКОМ исправленный index.html в блоке ```html path=index.html" + (ccNoLimit() ? "" : " (не больше 350 строк)") + ", учтя всё, что нашла проверка." });
       renderCa(); continue;
     }
-    const { files, edits, truncated } = ccParse(text);
-    const tools = ca.opts.net ? ccTools(text) : [];
+    const parsed = ccParse(text), { files, edits } = parsed;
+    let truncated = parsed.truncated;
+    if (ca.nl) {   // «Без лимитов»: оборванный файл дописываем, а не бросаем
+      for (const f of files) if (f.cut && !ca.stop) { const r = await ccMore(sysText, ccRel(f.path) || f.path, f.content); f.content = r.content; f.cut = r.cut; }
+      truncated = files.some((f) => f.cut);
+    }
+    const tools = ccTools(text).filter((t) => ca.opts.net || t.kind === "open");
     let res = { saved: [], errs: [] };
     if (files.length || edits.length) {
       const st = ccStep(edits.length && !files.length ? "Применяю правки…" : "Записываю файлы…", "run");
       res = await ccSave(files, edits);
       ccSet(st, { state: res.errs.length ? "bad" : "ok", title: res.saved.length ? `${edits.length && !files.length ? "Исправлено" : "Записано"} в workspace/${cw.cwd}: ${res.saved.join(", ")}` : "Файлы не записаны", text: res.errs.join("\n") });
       if (res.saved.length) wrote = true;
+      ccLog("Записал файлы: " + (res.saved.join(", ") || "ни одного") + (res.errs.length ? "; ошибки записи: " + res.errs.join(" | ").slice(0, 200) : ""));
     }
     if (tools.length) {
       let rep = "";
-      for (const t of tools) { if (ca.stop) break; rep += (await ccTool(t)) + "\n\n"; }
+      for (const t of tools) { if (ca.stop) break; ccLog("Интернет: @" + t.kind + " " + t.arg); rep += (await ccTool(t)) + "\n\n"; }
       history.push({ role: "user", content: rep.slice(0, 14000) }); continue;
     }
     if (!files.length && !edits.length) break;
     const entry = res.saved.find((p) => /\.html?$/i.test(p)) || (res.saved.length && lastEntry) || null;
     if (res.saved.some((p) => /\.html?$/i.test(p))) lastEntry = res.saved.find((p) => /\.html?$/i.test(p));
     if (!ca.opts.agent || !(entry || lastEntry)) {
-      if (res.errs.length && fixes < CC_MAX_FIX) { fixes++; history.push({ role: "user", content: "Не удалось записать:\n" + res.errs.join("\n") + "\nИсправь и выдай заново (для правок — точные фрагменты SEARCH из текущего файла, либо файл целиком)." }); continue; }
+      if (res.errs.length && fixes < ccMaxFix()) { fixes++; history.push({ role: "user", content: "Не удалось записать:\n" + res.errs.join("\n") + "\nИсправь и выдай заново (для правок — точные фрагменты SEARCH из текущего файла, либо файл целиком)." }); continue; }
       break;
     }
     const chk = await ccCheck(entry || lastEntry, task);
     if (chk.ok && !truncated && !res.errs.length) { ccStep("Проверка пройдена: страница открывается, консоль чистая, управление работает ✔", "ok"); break; }
-    if (fixes >= CC_MAX_FIX) { ccStep(`Сделано ${CC_MAX_FIX} попыток исправления. Откройте предпросмотр и напишите, что ещё не так — продолжу.`, "bad"); break; }
+    if (fixes >= ccMaxFix()) { ccStep(`Сделано ${ccMaxFix()} попыток исправления. Откройте предпросмотр и напишите, что ещё не так — продолжу.`, "bad"); break; }
     fixes++;
-    history.push({ role: "user", content: chk.report + (res.errs.length ? "\nОшибки записи:\n" + res.errs.join("\n") : "") + (truncated ? "\nТвой ответ оборвался — файл должен быть короче." : "") + "\n\nИсправь ВСЕ найденные проблемы. Выдай полные исправленные файлы (с path=)." });
+    history.push({ role: "user", content: chk.report + (res.errs.length ? "\nОшибки записи:\n" + res.errs.join("\n") : "") + (truncated ? (ccNoLimit() ? "\nТвой ответ оборвался из-за длины. Исправляй блоками edit или выдавай один файл за раз." : "\nТвой ответ оборвался — файл должен быть короче.") : "") + "\n\nИсправь ВСЕ найденные проблемы. Выдай полные исправленные файлы (с path=)." });
   }
   if (ca.stop) ccStep("Остановлено пользователем.", "bad");
   return wrote;
 }
 async function ccPlain(task) {
+  ccLog("Вопрос: " + task.slice(0, 300));
   const a = { role: "assistant", content: "", status: "Думаю…" }; ca.messages.push(a); renderCa();
   const hist = ca.messages.filter((m) => (m.role === "user" || m.role === "assistant") && m !== a).slice(-12).map((m) => ({ role: m.role, content: m.content }));
   const text = await ccStream(await ccSystem(), hist, 10, a);
-  const tools = ca.opts.net ? ccTools(text) : [];
+  const tools = ccTools(text).filter((t) => ca.opts.net || t.kind === "open");
   if (tools.length) { let rep = ""; for (const t of tools) rep += (await ccTool(t)) + "\n\n"; const b = { role: "assistant", content: "", status: "Читаю найденное…" }; ca.messages.push(b);
     await ccStream(await ccSystem(), hist.concat([{ role: "assistant", content: ccBrief(text) }, { role: "user", content: rep.slice(0, 14000) }]), 10, b); }
 }
@@ -686,6 +868,8 @@ async function caSend() {
   await ensureModels(); if (!codeModel()) return toast("Нет модели Ollama.", "error");
   $("#caInput").value = ""; ca.busy = true; ca.stop = false; $("#caSend").disabled = true; $("#caStop").hidden = false;
   ca.messages.push({ role: "user", content: t }); renderCa();
+  ca.nl = !!ca.opts.nolimit || CC_NL_RX.test(t);
+  if (ca.nl) ccStep("♾ Режим «Без лимитов»: размер проекта, число файлов и попыток исправления не ограничены", "ok");
   try { if (ca.opts.agent) await ccAgent(t); else await ccPlain(t); }
   catch (e) {
     const last = ca.messages[ca.messages.length - 1];
@@ -700,8 +884,10 @@ $("#caInput").oninput = () => { $("#caSend").disabled = !$("#caInput").value.tri
 $("#caInput").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); caSend(); } };
 $("#caSend").onclick = caSend;
 $("#caStop").onclick = () => { ca.stop = true; if (ca.ctl) ca.ctl.abort(); };
-$("#caClear").onclick = () => { if (ca.busy) return; if (ca.messages.length && !confirm("Начать новый разговор? Файлы в workspace останутся.")) return; ca.messages = []; store.set("codwe.code.chat", []); renderCaIntro(); };
+$("#caClear").onclick = () => { if (ca.busy) return; if (ca.messages.length && !confirm("Начать новый разговор? Файлы в workspace останутся.")) return; ca.messages = []; ca.plan = []; ca.planStep = null; ca.journal = []; store.set("codwe.code.chat", []); store.set("codwe.code.journal", []); renderCaIntro(); };
 $("#caAgent").checked = !!ca.opts.agent; $("#caNet").checked = !!ca.opts.net;
+$("#caNoLimit").checked = !!ca.opts.nolimit;
+$("#caNoLimit").onchange = (e) => { ca.opts.nolimit = e.target.checked; store.set("codwe.cc.opts", ca.opts); };
 $("#caAgent").onchange = (e) => { ca.opts.agent = e.target.checked; store.set("codwe.cc.opts", ca.opts); };
 $("#caNet").onchange = (e) => { ca.opts.net = e.target.checked; store.set("codwe.cc.opts", ca.opts); };
 $("#caConf").onclick = async () => {

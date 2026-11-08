@@ -176,6 +176,7 @@
         </aside>
 
         <div class="code-center">
+          <div class="cc-pages" id="ccPages"><button data-pg="code" class="active"><svg class="i sm"><use href="#i-code"/></svg>Код</button><button data-pg="preview"><svg class="i sm"><use href="#i-play"/></svg>Предпросмотр</button></div>
           <div class="code-tabs" id="codeTabs"></div>
           <div class="code-editor" id="codeEditorBox">
             <div class="code-empty" id="codeEmpty"><svg class="i xl"><use href="#i-code"/></svg><b>Откройте файл слева или попросите ассистента создать проект</b><span>Например: «сделай игру змейка в одном html-файле».</span></div>
@@ -184,7 +185,6 @@
           <div class="code-bottom" id="codeBottom">
             <div class="cb-tabs">
               <button data-cb="term" class="active"><svg class="i sm"><use href="#i-terminal"/></svg>Терминал</button>
-              <button data-cb="preview"><svg class="i sm"><use href="#i-play"/></svg>Предпросмотр</button>
               <span class="cb-fill"></span>
               <button class="icon-btn sm" id="cbClear" title="Очистить"><svg class="i"><use href="#i-trash"/></svg></button>
             </div>
@@ -199,10 +199,10 @@
                 <div class="term-in"><span class="term-prompt" id="termPrompt">default&gt;</span><input id="termInput" type="text" spellcheck="false" autocomplete="off" placeholder="Команда, например: python --version"><button class="btn small" id="termStop" hidden>Стоп</button></div>
               </div>
             </div>
-            <div class="cb-pane" id="cbPreview" hidden>
+          </div>
+          <div class="pv-page" id="pvPage" hidden>
               <div class="pv-bar"><input id="pvPath" type="text" placeholder="Файл для просмотра, например index.html"><button class="btn small" id="pvGo">Открыть</button><button class="btn small" id="pvReload">↻</button></div>
               <iframe id="pvFrame" title="Предпросмотр" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
-            </div>
           </div>
         </div>
 
@@ -211,6 +211,7 @@
           <div class="ca-opts">
             <label class="chip-check" title="Сам открывает игру, фотографирует экран, смотрит снимки и чинит ошибки"><input type="checkbox" id="caAgent" checked><span>🤖 Агент: запуск, фото, исправление</span></label>
             <label class="chip-check" title="Разрешить искать в интернете и читать страницы"><input type="checkbox" id="caNet" checked><span>🌐 Интернет</span></label>
+            <label class="chip-check" title="Снимает технические потолки: размер проекта, число файлов, раундов и попыток исправления. Большой проект собирается по файлам, оборванный файл дописывается. Работает и если написать в запросе «без лимитов». Безопасные лимиты и правила безопасности остаются включёнными"><input type="checkbox" id="caNoLimit"><span>♾ Без лимитов</span></label>
             <button class="icon-btn sm" id="caConf" title="Настройки поиска">⚙</button>
           </div>
           <div class="ca-scroll" id="caScroll"><div class="ca-col" id="caCol"></div></div>

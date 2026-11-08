@@ -791,3 +791,12 @@ body.is-dev .nav-dev { display: flex; }
 .ban-why span { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #ff8c8c; } .ban-why b { font-size: 19px; color: #fff; word-break: break-word; }
 .ban-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 @keyframes banPulse { 0%, 100% { text-shadow: 0 0 12px rgba(255, 59, 59, .35); } 50% { text-shadow: 0 0 34px rgba(255, 59, 59, .8); } }
+
+/* Codwecode: страницы «Код» и «Предпросмотр» */
+.cc-pages { display: flex; gap: 6px; padding: 8px 10px 0; }
+.cc-pages button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.cc-pages button:hover { color: var(--text); }
+.cc-pages button.active { background: var(--grad); color: var(--on-accent); border-color: transparent; }
+.pv-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pv-page .pv-bar { padding: 10px 12px; }
+.pv-page #pvFrame { flex: 1; min-height: 0; }
